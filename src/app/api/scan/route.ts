@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { CreateScanRequestSchema, ScanSettingsSchema } from '@/lib/types';
 import { normalizeUrl } from '@/lib/url-utils';
+import { runScan } from '@/lib/scanner';
 
 export async function POST(request: NextRequest) {
   try {
@@ -48,8 +49,14 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // TODO: Queue the actual scan job (for now, we'll run it inline in development)
-    // In production, this would push to a queue (e.g., Inngest, QStash, or BullMQ)
+    // Start the scan in the background (fire-and-forget for MVP)
+    // In production, you'd use a proper job queue
+    runScan({
+      scanRunId: scanRun.id,
+      settings: finalSettings,
+    }).catch((err) => {
+      console.error('Background scan failed:', err);
+    });
 
     return NextResponse.json({
       id: scanRun.id,
