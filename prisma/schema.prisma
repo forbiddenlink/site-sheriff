@@ -1,0 +1,144 @@
+// SiteSheriff - QA Bot for website auditing
+// Supabase Postgres
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Scan Run - represents a single audit run
+// ─────────────────────────────────────────────────────────────────────────────
+model ScanRun {
+  id            String   @id @default(cuid())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Input
+  inputUrl      String   // original URL from user
+  normalizedUrl String   // cleaned/normalized URL
+
+  // Status
+  status        ScanStatus @default(QUEUED)
+  error         String?    // error message if failed
+
+  // Settings (stored as JSON)
+  settings      Json       @default("{}")
+  // e.g. { maxPages: 25, includeLLM: true, screenshotMode: "above-fold" }
+
+  // Progress (updated during scan)
+  progress      Json       @default("{}")
+  // e.g. { pagesDiscovered: 12, pagesScanned: 8, checksCompleted: 45 }
+
+  // Summary (populated on completion)
+  summary       Json?
+  // e.g. { overallScore: 72, categoryScores: {...}, topIssues: [...] }
+
+  // Client email draft (LLM-generated)
+  clientEmailDraft String?
+
+  // Relations
+  pageResults   PageResult[]
+  issues        Issue[]
+
+  @@index([status])
+  @@index([createdAt])
+}
+
+enum ScanStatus {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  FAILED
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Page Result - data extracted from a single page
+// ─────────────────────────────────────────────────────────────────────────────
+model PageResult {
+  id              String   @id @default(cuid())
+  createdAt       DateTime @default(now())
+
+  scanRunId       String
+  scanRun         ScanRun  @relation(fields: [scanRunId], references: [id], onDelete: Cascade)
+
+  url             String
+  statusCode      Int?
+  loadTimeMs      Int?
+
+  // SEO fields
+  title           String?
+  metaDescription String?
+  h1              String?
+  canonical       String?
+  robotsMeta      String?  // noindex, nofollow, etc.
+  wordCount       Int?
+
+  // Links found on this page
+  links           Json?    // [{ href, text, isInternal, statusCode? }]
+
+  // Accessibility findings (axe-core output)
+  axeFindings     Json?
+
+  // Performance (Lighthouse subset if run)
+  lighthouseData  Json?
+
+  // Screenshot path (relative to storage)
+  screenshotPath  String?
+
+  @@index([scanRunId])
+  @@index([url])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Issue - a single finding from the scan
+// ─────────────────────────────────────────────────────────────────────────────
+model Issue {
+  id            String   @id @default(cuid())
+  createdAt     DateTime @default(now())
+
+  scanRunId     String
+  scanRun       ScanRun  @relation(fields: [scanRunId], references: [id], onDelete: Cascade)
+
+  // Classification
+  code          String   // e.g. "broken_link", "missing_meta_description", "a11y_color_contrast"
+  severity      Severity @default(P2)
+  category      IssueCategory
+
+  // Human-readable content
+  title         String   // e.g. "Missing meta description"
+  whyItMatters  String?  // client-friendly explanation
+  howToFix      String?  // actionable steps
+
+  // Evidence (JSON for flexibility)
+  evidence      Json?
+  // e.g. { url: "...", selector: "...", httpStatus: 404, snippet: "..." }
+
+  // Impact/effort for prioritization (1-5 scale)
+  impact        Int?     // 1=low, 5=critical
+  effort        Int?     // 1=easy, 5=hard
+
+  @@index([scanRunId])
+  @@index([category])
+  @@index([severity])
+}
+
+enum Severity {
+  P0  // Critical - must fix
+  P1  // High - should fix soon
+  P2  // Medium - nice to fix
+  P3  // Low - minor improvement
+}
+
+enum IssueCategory {
+  SEO
+  ACCESSIBILITY
+  PERFORMANCE
+  LINKS
+  CONTENT
+}
