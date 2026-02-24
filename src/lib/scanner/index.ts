@@ -1,6 +1,6 @@
 import { prisma } from '../db';
 import { Crawler, type CrawlResult } from './crawler';
-import { checkLinks, findBrokenLinks, type LinkCheckResult } from './link-checker';
+import { checkLinks, findBrokenLinks, findRedirectChains, type LinkCheckResult } from './link-checker';
 import { checkAccessibility, mapImpactToSeverity, type A11yResult } from './a11y-checker';
 import { checkSEO, type SEOIssue } from './seo-checker';
 import type { ScanSettings, ScanProgress, ScanSummary, LinkData } from '../types';
@@ -122,6 +122,28 @@ export async function runScan(ctx: ScanContext): Promise<void> {
           linkText: broken.text,
         },
         impact: 4,
+        effort: 1,
+      });
+    }
+
+    // Detect redirect chains
+    const redirectChains = findRedirectChains(linkResults);
+    for (const chain of redirectChains) {
+      allIssues.push({
+        code: 'redirect_chain',
+        severity: 'P2',
+        category: 'LINKS',
+        title: `Redirect chain (${chain.redirectChain!.length - 1} hops)`,
+        whyItMatters: 'Long redirect chains slow page load and waste crawl budget. Each hop adds latency and search engines may stop following after a few redirects.',
+        howToFix: 'Update the link to point directly to the final destination URL, removing intermediate redirects.',
+        evidence: {
+          url: chain.href,
+          finalUrl: chain.redirectChain![chain.redirectChain!.length - 1],
+          chain: chain.redirectChain,
+          hops: chain.redirectChain!.length - 1,
+          linkText: chain.text,
+        },
+        impact: 3,
         effort: 1,
       });
     }

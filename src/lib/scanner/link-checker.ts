@@ -4,6 +4,7 @@ export interface LinkCheckResult extends LinkData {
   statusCode: number;
   error?: string;
   redirectUrl?: string;
+  redirectChain?: string[];
 }
 
 /**
@@ -33,31 +34,52 @@ export async function checkLinks(
   return results;
 }
 
+const MAX_REDIRECTS = 5;
+
 async function checkSingleLink(link: LinkData, timeout: number): Promise<LinkCheckResult> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeout);
 
   try {
-    // Try HEAD first (faster), fall back to GET
-    let response = await fetch(link.href, {
-      method: 'HEAD',
-      signal: controller.signal,
-      redirect: 'follow',
-    });
+    const chain: string[] = [link.href];
+    let currentUrl = link.href;
+    let method: 'HEAD' | 'GET' = 'HEAD';
+    let finalStatus = 0;
 
-    // Some servers don't support HEAD, try GET
-    if (response.status === 405 || response.status === 501) {
-      response = await fetch(link.href, {
-        method: 'GET',
+    for (let hop = 0; hop < MAX_REDIRECTS; hop++) {
+      const response = await fetch(currentUrl, {
+        method,
         signal: controller.signal,
-        redirect: 'follow',
+        redirect: 'manual',
       });
+
+      // Some servers don't support HEAD, retry with GET
+      if (method === 'HEAD' && (response.status === 405 || response.status === 501)) {
+        method = 'GET';
+        continue; // Retry same URL with GET
+      }
+
+      // Handle redirects (3xx with Location header)
+      if (response.status >= 300 && response.status < 400) {
+        const location = response.headers.get('location');
+        if (location) {
+          const nextUrl = new URL(location, currentUrl).href;
+          chain.push(nextUrl);
+          currentUrl = nextUrl;
+          continue;
+        }
+      }
+
+      // Final response (non-redirect)
+      finalStatus = response.status;
+      break;
     }
 
     return {
       ...link,
-      statusCode: response.status,
-      redirectUrl: response.redirected ? response.url : undefined,
+      statusCode: finalStatus,
+      redirectUrl: chain.length > 1 ? chain.at(-1) : undefined,
+      redirectChain: chain.length > 1 ? chain : undefined,
     };
   } catch (error) {
     let errorMessage = 'Unknown error';
@@ -92,4 +114,11 @@ export function findBrokenLinks(results: LinkCheckResult[]): LinkCheckResult[] {
     if (r.statusCode >= 500) return true;
     return false;
   });
+}
+
+/**
+ * Find links with redirect chains of 2+ hops
+ */
+export function findRedirectChains(results: LinkCheckResult[]): LinkCheckResult[] {
+  return results.filter((r) => r.redirectChain && r.redirectChain.length >= 3);
 }

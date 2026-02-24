@@ -151,11 +151,52 @@ function CategoryBadge({ category }: { category: string }) {
   );
 }
 
+function getEffortLabel(effort: number): string {
+  if (effort <= 2) return 'Easy';
+  if (effort === 3) return 'Medium';
+  return 'Hard';
+}
+
+function EffortBadge({ effort }: { effort: number | null }) {
+  if (effort === null) return null;
+  const label = getEffortLabel(effort);
+  const styles: Record<string, string> = {
+    Easy: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
+    Medium: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
+    Hard: 'bg-red-500/10 text-red-400 border-red-500/20',
+  };
+  return (
+    <span className={`px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-widest rounded-full border ${styles[label]}`}>
+      {label}
+    </span>
+  );
+}
+
 export default function ScanPage() {
   const params = useParams();
   const id = params?.id as string;
   const [data, setData] = useState<ScanData | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [expandedIssues, setExpandedIssues] = useState<Set<string>>(new Set());
+  const [copied, setCopied] = useState(false);
+
+  const toggleIssue = (issueId: string) => {
+    setExpandedIssues((prev) => {
+      const next = new Set(prev);
+      if (next.has(issueId)) {
+        next.delete(issueId);
+      } else {
+        next.add(issueId);
+      }
+      return next;
+    });
+  };
+
+  const handleShareReport = async () => {
+    await navigator.clipboard.writeText(globalThis.location.href);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
 
   useEffect(() => {
     if (!id) return;
@@ -238,8 +279,11 @@ export default function ScanPage() {
           </div>
 
           {isComplete && (
-            <button className="px-5 py-2.5 rounded-xl bg-white/4 border border-white/8 text-slate-300 hover:bg-white/8 hover:text-white transition-all text-sm font-medium backdrop-blur-md active:scale-95">
-              Export Audit Log
+            <button
+              onClick={handleShareReport}
+              className="px-5 py-2.5 rounded-xl bg-white/4 border border-white/8 text-slate-300 hover:bg-white/8 hover:text-white transition-all text-sm font-medium backdrop-blur-md active:scale-95"
+            >
+              {copied ? 'Copied!' : 'Share Report'}
             </button>
           )}
         </div>
@@ -357,41 +401,97 @@ export default function ScanPage() {
                 </div>
               ) : (
                 <div className="divide-y divide-white/4">
-                  {data.issues.map((issue) => (
-                    <div key={issue.id} className="p-6 sm:p-8 hover:bg-white/2 transition-colors duration-300 group">
-                      <div className="flex flex-col sm:flex-row items-start gap-5">
-                        <div className="mt-1 shrink-0">
-                          <SeverityBadge severity={issue.severity} />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-3 mb-2 flex-wrap">
-                            <h3 className="text-slate-200 text-base font-medium leading-tight">
-                              {issue.title}
-                            </h3>
-                            <CategoryBadge category={issue.category} />
+                  {data.issues.map((issue) => {
+                    const isExpanded = expandedIssues.has(issue.id);
+                    return (
+                      <div key={issue.id} className="hover:bg-white/2 transition-colors duration-300 group">
+                        <button
+                          type="button"
+                          className="p-6 sm:p-8 cursor-pointer select-none w-full text-left"
+                          onClick={() => toggleIssue(issue.id)}
+                        >
+                          <div className="flex flex-col sm:flex-row items-start gap-5">
+                            <div className="mt-1 shrink-0 flex items-center gap-3">
+                              <svg
+                                className={`w-4 h-4 text-slate-500 transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`}
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                                strokeWidth={2}
+                              >
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                              </svg>
+                              <SeverityBadge severity={issue.severity} />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-3 mb-2 flex-wrap">
+                                <h3 className="text-slate-200 text-base font-medium leading-tight">
+                                  {issue.title}
+                                </h3>
+                                <CategoryBadge category={issue.category} />
+                              </div>
+                              
+                              {issue.whyItMatters && (
+                                <p className="text-slate-400 text-sm leading-relaxed max-w-3xl">
+                                  {issue.whyItMatters}
+                                </p>
+                              )}
+                              
+                              <div className="flex items-center gap-4 mt-4 text-xs font-mono text-slate-500 opacity-60 group-hover:opacity-100 transition-opacity">
+                                <span className="bg-white/4 px-2 py-1 rounded">
+                                  CODE: {issue.code}
+                                </span>
+                                {issue.impact && (
+                                  <span>
+                                    IMPACT:{' '}
+                                    <span className="text-slate-300">{issue.impact}/5</span>
+                                  </span>
+                                )}
+                              </div>
+                            </div>
                           </div>
-                          
-                          {issue.whyItMatters && (
-                            <p className="text-slate-400 text-sm leading-relaxed max-w-3xl">
-                              {issue.whyItMatters}
-                            </p>
-                          )}
-                          
-                          <div className="flex items-center gap-4 mt-4 text-xs font-mono text-slate-500 opacity-60 group-hover:opacity-100 transition-opacity">
-                            <span className="bg-white/4 px-2 py-1 rounded">
-                              CODE: {issue.code}
-                            </span>
-                            {issue.impact && (
-                              <span>
-                                IMPACT:{' '}
-                                <span className="text-slate-300">{issue.impact}/5</span>
-                              </span>
+                        </button>
+
+                        {isExpanded && (
+                          <div className="px-6 sm:px-8 pb-6 sm:pb-8 pt-0 ml-0 sm:ml-17 space-y-5">
+                            {issue.howToFix && (
+                              <div>
+                                <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">How to Fix</h4>
+                                <p className="text-slate-300 text-sm leading-relaxed max-w-3xl">
+                                  {issue.howToFix}
+                                </p>
+                              </div>
+                            )}
+
+                            {issue.effort !== null && (
+                              <div className="flex items-center gap-3">
+                                <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Effort</span>
+                                <EffortBadge effort={issue.effort} />
+                              </div>
+                            )}
+
+                            {issue.evidence && Object.keys(issue.evidence).length > 0 && (
+                              <div>
+                                <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Evidence</h4>
+                                <div className="bg-white/2 border border-white/6 rounded-xl p-4 font-mono text-xs text-slate-300 space-y-1.5 overflow-x-auto">
+                                  {Object.entries(issue.evidence).map(([key, value]) => {
+                                    if (value === null || value === undefined) return null;
+                                    const display = typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value);
+                                    return (
+                                      <div key={key} className="flex gap-3">
+                                        <span className="text-slate-500 shrink-0">{key}:</span>
+                                        <span className="text-slate-300 break-all whitespace-pre-wrap">{display}</span>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
                             )}
                           </div>
-                        </div>
+                        )}
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
