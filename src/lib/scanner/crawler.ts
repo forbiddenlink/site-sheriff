@@ -1,4 +1,4 @@
-import { chromium, Browser, Page } from 'playwright';
+import { chromium, Browser } from 'playwright';
 import * as cheerio from 'cheerio';
 import { normalizeUrl, isInternalUrl, shouldExcludeUrl, resolveUrl, getHostname } from '../url-utils';
 import type { LinkData } from '../types';
@@ -15,6 +15,7 @@ export interface CrawlResult {
   robotsMeta: string | null;
   wordCount: number;
   links: LinkData[];
+  screenshotBase64?: string;
   error?: string;
 }
 
@@ -22,12 +23,14 @@ export interface CrawlerOptions {
   maxPages: number;
   maxDepth: number;
   timeout: number;
+  screenshotMode: 'none' | 'above-fold' | 'full-page';
 }
 
 const DEFAULT_OPTIONS: CrawlerOptions = {
   maxPages: 25,
   maxDepth: 3,
   timeout: 30000,
+  screenshotMode: 'above-fold',
 };
 
 /**
@@ -159,6 +162,21 @@ export class Crawler {
         new Map(links.map((l) => [l.href, l])).values()
       );
 
+      // Take screenshot if enabled
+      let screenshotBase64: string | undefined;
+      if (this.options.screenshotMode !== 'none') {
+        try {
+          const screenshotBuffer = await page.screenshot({
+            type: 'jpeg',
+            quality: 70,
+            fullPage: this.options.screenshotMode === 'full-page',
+          });
+          screenshotBase64 = screenshotBuffer.toString('base64');
+        } catch {
+          // Screenshot failed, continue without it
+        }
+      }
+
       return {
         url,
         statusCode,
@@ -171,6 +189,7 @@ export class Crawler {
         robotsMeta,
         wordCount,
         links: uniqueLinks,
+        screenshotBase64,
       };
     } catch (error) {
       return {

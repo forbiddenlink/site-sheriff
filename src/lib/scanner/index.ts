@@ -1,8 +1,9 @@
 import { prisma } from '../db';
 import { Crawler, type CrawlResult } from './crawler';
-import { checkLinks, findBrokenLinks, findRedirectChains, type LinkCheckResult } from './link-checker';
-import { checkAccessibility, mapImpactToSeverity, type A11yResult } from './a11y-checker';
-import { checkSEO, type SEOIssue } from './seo-checker';
+import { checkLinks, findBrokenLinks, findRedirectChains } from './link-checker';
+import { checkAccessibility, mapImpactToSeverity } from './a11y-checker';
+import { checkSEO } from './seo-checker';
+import { checkPerformance } from './perf-checker';
 import type { ScanSettings, ScanProgress, ScanSummary, LinkData } from '../types';
 
 export interface ScanContext {
@@ -32,6 +33,7 @@ export async function runScan(ctx: ScanContext): Promise<void> {
     const crawler = new Crawler({
       maxPages: settings.maxPages,
       maxDepth: settings.maxDepth,
+      screenshotMode: settings.screenshotMode ?? 'above-fold',
     });
 
     crawler.setProgressCallback(async (discovered, scanned, current) => {
@@ -61,6 +63,9 @@ export async function runScan(ctx: ScanContext): Promise<void> {
           robotsMeta: result.robotsMeta,
           wordCount: result.wordCount,
           links: result.links as unknown as object,
+          screenshotPath: result.screenshotBase64
+            ? `data:image/jpeg;base64,${result.screenshotBase64}`
+            : null,
         },
       });
     }
@@ -182,7 +187,130 @@ export async function runScan(ctx: ScanContext): Promise<void> {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Phase 5: Save issues and compute summary
+    // Phase 5: Performance checks
+    // ─────────────────────────────────────────────────────────────────────────
+    if (settings.includePerformance) {
+      await updateProgress(scanRunId, {
+        pagesDiscovered: crawlResults.length,
+        pagesScanned: crawlResults.length,
+        checksCompleted: allIssues.length,
+        stage: 'performance',
+      });
+
+      // Check performance on homepage + up to 2 more pages
+      const pagesToCheckPerf = crawlResults.slice(0, 3).filter((r) => !r.error);
+
+      for (const pageResult of pagesToCheckPerf) {
+        const perfResult = await checkPerformance(pageResult.url);
+
+        // Update the page result with performance data
+        await prisma.pageResult.updateMany({
+          where: { scanRunId, url: pageResult.url },
+          data: { lighthouseData: perfResult.metrics as unknown as object },
+        });
+
+        const m = perfResult.metrics;
+
+        // FCP issues
+        if (m.firstContentfulPaint !== null && m.firstContentfulPaint > 3000) {
+          allIssues.push({
+            code: 'slow_fcp',
+            severity: 'P1',
+            category: 'PERFORMANCE',
+            title: `Slow First Contentful Paint (${m.firstContentfulPaint}ms)`,
+            whyItMatters: 'First Contentful Paint measures when the first text or image is painted. Users perceive pages as slow when FCP exceeds 3 seconds.',
+            howToFix: 'Reduce server response time, eliminate render-blocking resources, and optimize critical rendering path. Consider using a CDN.',
+            evidence: { url: pageResult.url, fcp: m.firstContentfulPaint },
+            impact: 4,
+            effort: 3,
+          });
+        } else if (m.firstContentfulPaint !== null && m.firstContentfulPaint > 1800) {
+          allIssues.push({
+            code: 'needs_improvement_fcp',
+            severity: 'P2',
+            category: 'PERFORMANCE',
+            title: `First Contentful Paint needs improvement (${m.firstContentfulPaint}ms)`,
+            whyItMatters: 'First Contentful Paint between 1.8s and 3s indicates the page could load faster. Users expect pages to load within 2 seconds.',
+            howToFix: 'Optimize images, defer non-critical CSS/JS, and consider preloading key resources.',
+            evidence: { url: pageResult.url, fcp: m.firstContentfulPaint },
+            impact: 3,
+            effort: 2,
+          });
+        }
+
+        // LCP issues
+        if (m.largestContentfulPaint !== null && m.largestContentfulPaint > 4000) {
+          allIssues.push({
+            code: 'slow_lcp',
+            severity: 'P1',
+            category: 'PERFORMANCE',
+            title: `Slow Largest Contentful Paint (${m.largestContentfulPaint}ms)`,
+            whyItMatters: 'Largest Contentful Paint measures when the largest content element becomes visible. LCP above 4s is rated poor by Core Web Vitals.',
+            howToFix: 'Optimize the largest image or text block on the page. Use responsive images, preload hero images, and reduce server response time.',
+            evidence: { url: pageResult.url, lcp: m.largestContentfulPaint },
+            impact: 5,
+            effort: 3,
+          });
+        } else if (m.largestContentfulPaint !== null && m.largestContentfulPaint > 2500) {
+          allIssues.push({
+            code: 'needs_improvement_lcp',
+            severity: 'P2',
+            category: 'PERFORMANCE',
+            title: `Largest Contentful Paint needs improvement (${m.largestContentfulPaint}ms)`,
+            whyItMatters: 'LCP between 2.5s and 4s means the main content is loading slower than ideal. This is a Core Web Vital metric that affects search ranking.',
+            howToFix: 'Preload the LCP element, optimize images with modern formats (WebP/AVIF), and use a CDN for static assets.',
+            evidence: { url: pageResult.url, lcp: m.largestContentfulPaint },
+            impact: 4,
+            effort: 2,
+          });
+        }
+
+        // CLS issues
+        if (m.cumulativeLayoutShift !== null && m.cumulativeLayoutShift > 0.25) {
+          allIssues.push({
+            code: 'poor_cls',
+            severity: 'P1',
+            category: 'PERFORMANCE',
+            title: `Poor Cumulative Layout Shift (${m.cumulativeLayoutShift})`,
+            whyItMatters: 'CLS above 0.25 means page elements shift significantly during loading, causing a frustrating user experience and misclicks.',
+            howToFix: 'Set explicit width and height on images/videos, avoid inserting content above existing content, and use CSS contain where possible.',
+            evidence: { url: pageResult.url, cls: m.cumulativeLayoutShift },
+            impact: 4,
+            effort: 2,
+          });
+        } else if (m.cumulativeLayoutShift !== null && m.cumulativeLayoutShift > 0.1) {
+          allIssues.push({
+            code: 'needs_improvement_cls',
+            severity: 'P2',
+            category: 'PERFORMANCE',
+            title: `Cumulative Layout Shift needs improvement (${m.cumulativeLayoutShift})`,
+            whyItMatters: 'CLS between 0.1 and 0.25 indicates some layout instability. This is a Core Web Vital that affects user experience and SEO.',
+            howToFix: 'Add size attributes to images and embeds, avoid dynamically injected content, and use font-display: swap for web fonts.',
+            evidence: { url: pageResult.url, cls: m.cumulativeLayoutShift },
+            impact: 3,
+            effort: 2,
+          });
+        }
+
+        // Load time issue
+        if (m.loadTime !== null && m.loadTime > 5000) {
+          allIssues.push({
+            code: 'slow_load',
+            severity: 'P2',
+            category: 'PERFORMANCE',
+            title: `Slow page load (${m.loadTime}ms)`,
+            whyItMatters: 'Pages that take more than 5 seconds to fully load have significantly higher bounce rates. Each additional second of load time reduces conversions.',
+            howToFix: 'Audit and reduce page weight, enable compression, minimize HTTP requests, and consider lazy loading below-fold content.',
+            evidence: { url: pageResult.url, loadTime: m.loadTime },
+            impact: 3,
+            effort: 3,
+          });
+        }
+      }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Phase 6: Save issues and compute summary
     // ─────────────────────────────────────────────────────────────────────────
     await updateProgress(scanRunId, {
       pagesDiscovered: crawlResults.length,

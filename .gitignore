@@ -56,4 +56,5 @@ Thumbs.db
 
 # ── IDE / AI artifacts ────────────────────────────────────────────────────────
 .history/
+.codacy/
 .github/instructions/codacy.instructions.md

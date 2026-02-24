@@ -24,6 +24,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
             title: true,
             metaDescription: true,
             h1: true,
+            screenshotPath: true,
           },
         },
       },

@@ -21,7 +21,7 @@ export interface ScanProgress {
   pagesScanned: number;
   checksCompleted: number;
   currentPage?: string;
-  stage: 'crawling' | 'analyzing' | 'summarizing' | 'done';
+  stage: 'crawling' | 'analyzing' | 'performance' | 'summarizing' | 'done';
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

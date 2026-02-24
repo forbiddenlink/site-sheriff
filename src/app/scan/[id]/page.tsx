@@ -45,6 +45,7 @@ interface ScanData {
     url: string;
     statusCode: number | null;
     title: string | null;
+    screenshotPath?: string | null;
   }>;
   error?: string;
   createdAt: string;
@@ -179,6 +180,7 @@ export default function ScanPage() {
   const [error, setError] = useState<string | null>(null);
   const [expandedIssues, setExpandedIssues] = useState<Set<string>>(new Set());
   const [copied, setCopied] = useState(false);
+  const [expandedScreenshot, setExpandedScreenshot] = useState<string | null>(null);
 
   const toggleIssue = (issueId: string) => {
     setExpandedIssues((prev) => {
@@ -495,6 +497,89 @@ export default function ScanPage() {
                 </div>
               )}
             </div>
+
+            {/* Pages with Screenshots */}
+            {data.pages.length > 0 && (
+              <div className="bg-white/2 border border-white/6 backdrop-blur-md rounded-3xl overflow-hidden mb-20">
+                <div className="px-8 py-6 border-b border-white/6 flex items-center justify-between">
+                  <h2 className="text-sm font-medium text-white tracking-wide">
+                    Crawled Pages
+                  </h2>
+                  <span className="text-xs font-mono text-slate-500 bg-white/4 px-2.5 py-1 rounded-lg">
+                    COUNT: {data.pages.length}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 p-6">
+                  {data.pages.map((pg) => (
+                    <div
+                      key={pg.id}
+                      className="bg-white/2 border border-white/4 rounded-2xl overflow-hidden hover:border-white/10 transition-colors"
+                    >
+                      {pg.screenshotPath && (
+                        <button
+                          type="button"
+                          className="w-full cursor-pointer"
+                          onClick={() => setExpandedScreenshot(pg.screenshotPath!)}
+                        >
+                          <img
+                            src={pg.screenshotPath}
+                            alt={`Screenshot of ${pg.title || pg.url}`}
+                            className="w-full h-44 object-cover object-top border-b border-white/4"
+                            loading="lazy"
+                          />
+                        </button>
+                      )}
+                      <div className="p-4">
+                        <h3 className="text-sm font-medium text-slate-200 truncate mb-1">
+                          {pg.title || pg.url}
+                        </h3>
+                        <p className="text-xs font-mono text-slate-500 truncate mb-2">
+                          {pg.url}
+                        </p>
+                        {pg.statusCode && (() => {
+                          let badgeStyle = 'bg-red-500/10 text-red-400 border-red-500/20';
+                          if (pg.statusCode >= 200 && pg.statusCode < 300) {
+                            badgeStyle = 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
+                          } else if (pg.statusCode >= 300 && pg.statusCode < 400) {
+                            badgeStyle = 'bg-amber-500/10 text-amber-400 border-amber-500/20';
+                          }
+                          return (
+                            <span
+                              className={`inline-block px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest rounded-full border ${badgeStyle}`}
+                            >
+                              {pg.statusCode}
+                            </span>
+                          );
+                        })()}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Screenshot Lightbox */}
+            {expandedScreenshot && (
+              <div
+                className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-8"
+              >
+                <div className="relative max-w-4xl max-h-[90vh] overflow-auto rounded-2xl border border-white/10">
+                  <img
+                    src={expandedScreenshot}
+                    alt="Full screenshot"
+                    className="w-full h-auto"
+                  />
+                  <button
+                    type="button"
+                    className="absolute top-4 right-4 w-8 h-8 rounded-full bg-black/60 border border-white/20 flex items-center justify-center text-white hover:bg-black/80 transition-colors"
+                    onClick={() => setExpandedScreenshot(null)}
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+            )}
           </>
         )}
       </div>
