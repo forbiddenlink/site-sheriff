@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/db';
+import { supabaseAdmin } from '@/lib/supabase-server';
 import { CreateScanRequestSchema, ScanSettingsSchema } from '@/lib/types';
 import { normalizeUrl } from '@/lib/url-utils';
 import { runScan } from '@/lib/scanner';
@@ -34,20 +34,27 @@ export async function POST(request: NextRequest) {
     const finalSettings = ScanSettingsSchema.parse(settings ?? {});
 
     // Create scan run
-    const scanRun = await prisma.scanRun.create({
-      data: {
+    const id = crypto.randomUUID();
+    const { data: scanRun, error: dbError } = await supabaseAdmin
+      .from('ScanRun')
+      .insert({
+        id,
         inputUrl: url,
         normalizedUrl,
         status: 'QUEUED',
         settings: finalSettings,
+        updatedAt: new Date().toISOString(),
         progress: {
           pagesDiscovered: 0,
           pagesScanned: 0,
           checksCompleted: 0,
           stage: 'crawling',
         },
-      },
-    });
+      })
+      .select()
+      .single();
+
+    if (dbError) throw dbError;
 
     // Start the scan in the background (fire-and-forget for MVP)
     // In production, you'd use a proper job queue
@@ -64,13 +71,20 @@ export async function POST(request: NextRequest) {
       inputUrl: scanRun.inputUrl,
       normalizedUrl: scanRun.normalizedUrl,
       progress: scanRun.progress,
-      createdAt: scanRun.createdAt.toISOString(),
+      createdAt: scanRun.createdAt,
     });
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('Error creating scan:', error);
-    const message = error instanceof Error ? error.message : 'Unknown error';
+    const detail =
+      error instanceof Error
+        ? error.message
+        : typeof error === 'object' && error !== null && 'message' in error
+          ? String((error as { message: string }).message)
+          : typeof error === 'string'
+            ? error
+            : 'Unknown error: ' + JSON.stringify(error);
     return NextResponse.json(
-      { error: 'Failed to create scan', detail: message },
+      { error: 'Failed to create scan', detail },
       { status: 500 }
     );
   }
@@ -81,20 +95,13 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const limit = Math.min(parseInt(searchParams.get('limit') ?? '10'), 50);
 
-    const scans = await prisma.scanRun.findMany({
-      orderBy: { createdAt: 'desc' },
-      take: limit,
-      select: {
-        id: true,
-        status: true,
-        inputUrl: true,
-        normalizedUrl: true,
-        progress: true,
-        summary: true,
-        createdAt: true,
-        error: true,
-      },
-    });
+    const { data: scans, error: dbError } = await supabaseAdmin
+      .from('ScanRun')
+      .select('id, status, inputUrl, normalizedUrl, progress, summary, createdAt, error')
+      .order('createdAt', { ascending: false })
+      .limit(limit);
+
+    if (dbError) throw dbError;
 
     return NextResponse.json({ scans });
   } catch (error) {

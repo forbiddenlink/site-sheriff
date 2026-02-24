@@ -1,4 +1,4 @@
-import { prisma } from '../db';
+import { supabaseAdmin } from '../supabase-server';
 import { Crawler, type CrawlResult } from './crawler';
 import { checkLinks, findBrokenLinks, findRedirectChains } from './link-checker';
 import { checkAccessibility, mapImpactToSeverity } from './a11y-checker';
@@ -20,10 +20,13 @@ export async function runScan(ctx: ScanContext): Promise<void> {
 
   try {
     // Update status to running
-    const scanRun = await prisma.scanRun.update({
-      where: { id: scanRunId },
-      data: { status: 'RUNNING' },
-    });
+    const { data: scanRun, error: updateError } = await supabaseAdmin
+      .from('ScanRun')
+      .update({ status: 'RUNNING', updatedAt: new Date().toISOString() })
+      .eq('id', scanRunId)
+      .select()
+      .single();
+    if (updateError) throw updateError;
 
     const normalizedUrl = scanRun.normalizedUrl;
 
@@ -50,8 +53,10 @@ export async function runScan(ctx: ScanContext): Promise<void> {
 
     // Save page results
     for (const result of crawlResults) {
-      await prisma.pageResult.create({
-        data: {
+      const { error: pageError } = await supabaseAdmin
+        .from('PageResult')
+        .insert({
+          id: crypto.randomUUID(),
           scanRunId,
           url: result.url,
           statusCode: result.statusCode,
@@ -62,12 +67,12 @@ export async function runScan(ctx: ScanContext): Promise<void> {
           canonical: result.canonical,
           robotsMeta: result.robotsMeta,
           wordCount: result.wordCount,
-          links: result.links as unknown as object,
+          links: result.links,
           screenshotPath: result.screenshotBase64
             ? `data:image/jpeg;base64,${result.screenshotBase64}`
             : null,
-        },
-      });
+        });
+      if (pageError) throw pageError;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -162,10 +167,11 @@ export async function runScan(ctx: ScanContext): Promise<void> {
       const a11yResult = await checkAccessibility(page.url);
 
       // Update page result with axe findings
-      await prisma.pageResult.updateMany({
-        where: { scanRunId, url: page.url },
-        data: { axeFindings: a11yResult.violations as unknown as object },
-      });
+      await supabaseAdmin
+        .from('PageResult')
+        .update({ axeFindings: a11yResult.violations })
+        .eq('scanRunId', scanRunId)
+        .eq('url', page.url);
 
       // Create issues for violations
       for (const violation of a11yResult.violations) {
@@ -204,10 +210,11 @@ export async function runScan(ctx: ScanContext): Promise<void> {
         const perfResult = await checkPerformance(pageResult.url);
 
         // Update the page result with performance data
-        await prisma.pageResult.updateMany({
-          where: { scanRunId, url: pageResult.url },
-          data: { lighthouseData: perfResult.metrics as unknown as object },
-        });
+        await supabaseAdmin
+          .from('PageResult')
+          .update({ lighthouseData: perfResult.metrics })
+          .eq('scanRunId', scanRunId)
+          .eq('url', pageResult.url);
 
         const m = perfResult.metrics;
 
@@ -324,8 +331,10 @@ export async function runScan(ctx: ScanContext): Promise<void> {
 
     // Save issues to database
     for (const issue of uniqueIssues) {
-      await prisma.issue.create({
-        data: {
+      const { error: issueError } = await supabaseAdmin
+        .from('Issue')
+        .insert({
+          id: crypto.randomUUID(),
           scanRunId,
           code: issue.code,
           severity: issue.severity,
@@ -336,44 +345,46 @@ export async function runScan(ctx: ScanContext): Promise<void> {
           evidence: issue.evidence,
           impact: issue.impact,
           effort: issue.effort,
-        },
-      });
+        });
+      if (issueError) throw issueError;
     }
 
     // Compute summary
     const summary = computeSummary(uniqueIssues, crawlResults, Date.now() - startTime);
 
     // Update scan run with success
-    await prisma.scanRun.update({
-      where: { id: scanRunId },
-      data: {
+    await supabaseAdmin
+      .from('ScanRun')
+      .update({
         status: 'SUCCEEDED',
-        summary: summary as unknown as object,
+        summary: summary,
         progress: {
           pagesDiscovered: crawlResults.length,
           pagesScanned: crawlResults.length,
           checksCompleted: uniqueIssues.length,
           stage: 'done',
         },
-      },
-    });
+        updatedAt: new Date().toISOString(),
+      })
+      .eq('id', scanRunId);
   } catch (error) {
     console.error('Scan failed:', error);
-    await prisma.scanRun.update({
-      where: { id: scanRunId },
-      data: {
+    await supabaseAdmin
+      .from('ScanRun')
+      .update({
         status: 'FAILED',
         error: error instanceof Error ? error.message : 'Unknown error',
-      },
-    });
+        updatedAt: new Date().toISOString(),
+      })
+      .eq('id', scanRunId);
   }
 }
 
 async function updateProgress(scanRunId: string, progress: ScanProgress) {
-  await prisma.scanRun.update({
-    where: { id: scanRunId },
-    data: { progress: progress as unknown as object },
-  });
+  await supabaseAdmin
+    .from('ScanRun')
+    .update({ progress, updatedAt: new Date().toISOString() })
+    .eq('id', scanRunId);
 }
 
 function dedupeIssues<T extends { code: string; evidence: { url?: string } }>(issues: T[]): T[] {
