@@ -1,7 +1,8 @@
-import { chromium, Browser } from 'playwright';
 import * as cheerio from 'cheerio';
 import { normalizeUrl, isInternalUrl, shouldExcludeUrl, resolveUrl, getHostname } from '../url-utils';
 import type { LinkData } from '../types';
+
+type Browser = import('playwright').Browser;
 
 export interface CrawlResult {
   url: string;
@@ -38,11 +39,17 @@ const DEFAULT_OPTIONS: CrawlerOptions = {
  */
 export class Crawler {
   private browser: Browser | null = null;
+  private useFetchFallback = false;
   private visited = new Set<string>();
   private queue: Array<{ url: string; depth: number }> = [];
   private baseHostname: string = '';
   private options: CrawlerOptions;
   private onProgress?: (discovered: number, scanned: number, current: string) => void;
+
+  /** Whether this crawler fell back to fetch mode (no browser available). */
+  get isFetchMode(): boolean {
+    return this.useFetchFallback;
+  }
 
   constructor(options: Partial<CrawlerOptions> = {}) {
     this.options = { ...DEFAULT_OPTIONS, ...options };
@@ -56,11 +63,17 @@ export class Crawler {
     const results: CrawlResult[] = [];
 
     try {
-      // Launch browser
-      this.browser = await chromium.launch({
-        headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox'],
-      });
+      // Try to launch browser; fall back to fetch if Playwright is unavailable
+      try {
+        const { chromium } = await import('playwright');
+        this.browser = await chromium.launch({
+          headless: true,
+          args: ['--no-sandbox', '--disable-setuid-sandbox'],
+        });
+      } catch {
+        console.warn('Playwright unavailable — falling back to fetch-based crawling');
+        this.useFetchFallback = true;
+      }
 
       // Normalize start URL and extract hostname
       const normalizedStart = normalizeUrl(startUrl);
@@ -109,6 +122,58 @@ export class Crawler {
   }
 
   private async crawlPage(url: string): Promise<CrawlResult> {
+    if (this.useFetchFallback) {
+      return this.crawlPageWithFetch(url);
+    }
+    return this.crawlPageWithBrowser(url);
+  }
+
+  // ── Fetch-based fallback (serverless) ──────────────────────────────────
+
+  private async crawlPageWithFetch(url: string): Promise<CrawlResult> {
+    const startTime = Date.now();
+
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), this.options.timeout);
+
+      const response = await fetch(url, {
+        signal: controller.signal,
+        headers: {
+          'User-Agent': 'SiteSheriffBot/1.0 (+https://site-sheriff.vercel.app)',
+          Accept: 'text/html,application/xhtml+xml',
+        },
+        redirect: 'follow',
+      });
+
+      clearTimeout(timeoutId);
+
+      const loadTimeMs = Date.now() - startTime;
+      const statusCode = response.status;
+      const html = await response.text();
+
+      return this.parseHtml(url, statusCode, loadTimeMs, html);
+    } catch (error) {
+      return {
+        url,
+        statusCode: 0,
+        loadTimeMs: Date.now() - startTime,
+        html: '',
+        title: null,
+        metaDescription: null,
+        h1: null,
+        canonical: null,
+        robotsMeta: null,
+        wordCount: 0,
+        links: [],
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
+    }
+  }
+
+  // ── Browser-based crawl (Playwright) ───────────────────────────────────
+
+  private async crawlPageWithBrowser(url: string): Promise<CrawlResult> {
     const page = await this.browser!.newPage();
     const startTime = Date.now();
 
@@ -124,46 +189,10 @@ export class Crawler {
 
       // Get HTML content
       const html = await page.content();
-      const $ = cheerio.load(html);
 
-      // Extract SEO data
-      const title = $('title').first().text().trim() || null;
-      const metaDescription = $('meta[name="description"]').attr('content')?.trim() || null;
-      const h1 = $('h1').first().text().trim() || null;
-      const canonical = $('link[rel="canonical"]').attr('href') || null;
-      const robotsMeta = $('meta[name="robots"]').attr('content') || null;
-
-      // Count words in body text
-      const bodyText = $('body').text().replace(/\s+/g, ' ').trim();
-      const wordCount = bodyText.split(' ').filter(Boolean).length;
-
-      // Extract links
-      const links: LinkData[] = [];
-      $('a[href]').each((_, el) => {
-        const href = $(el).attr('href');
-        if (!href || href.startsWith('#') || href.startsWith('javascript:') || href.startsWith('mailto:') || href.startsWith('tel:')) {
-          return;
-        }
-
-        const resolved = resolveUrl(href, url);
-        if (!resolved) return;
-
-        const isInternal = isInternalUrl(resolved, this.baseHostname);
-
-        links.push({
-          href: resolved,
-          text: $(el).text().trim().slice(0, 100),
-          isInternal,
-        });
-      });
-
-      // Dedupe links
-      const uniqueLinks = Array.from(
-        new Map(links.map((l) => [l.href, l])).values()
-      );
+      const result = this.parseHtml(url, statusCode, loadTimeMs, html);
 
       // Take screenshot if enabled
-      let screenshotBase64: string | undefined;
       if (this.options.screenshotMode !== 'none') {
         try {
           const screenshotBuffer = await page.screenshot({
@@ -171,26 +200,13 @@ export class Crawler {
             quality: 70,
             fullPage: this.options.screenshotMode === 'full-page',
           });
-          screenshotBase64 = screenshotBuffer.toString('base64');
+          result.screenshotBase64 = screenshotBuffer.toString('base64');
         } catch {
           // Screenshot failed, continue without it
         }
       }
 
-      return {
-        url,
-        statusCode,
-        loadTimeMs,
-        html,
-        title,
-        metaDescription,
-        h1,
-        canonical,
-        robotsMeta,
-        wordCount,
-        links: uniqueLinks,
-        screenshotBase64,
-      };
+      return result;
     } catch (error) {
       return {
         url,
@@ -209,6 +225,62 @@ export class Crawler {
     } finally {
       await page.close();
     }
+  }
+
+  // ── Shared HTML parsing ────────────────────────────────────────────────
+
+  private parseHtml(url: string, statusCode: number, loadTimeMs: number, html: string): CrawlResult {
+    const $ = cheerio.load(html);
+
+    // Extract SEO data
+    const title = $('title').first().text().trim() || null;
+    const metaDescription = $('meta[name="description"]').attr('content')?.trim() || null;
+    const h1 = $('h1').first().text().trim() || null;
+    const canonical = $('link[rel="canonical"]').attr('href') || null;
+    const robotsMeta = $('meta[name="robots"]').attr('content') || null;
+
+    // Count words in body text
+    const bodyText = $('body').text().replace(/\s+/g, ' ').trim();
+    const wordCount = bodyText.split(' ').filter(Boolean).length;
+
+    // Extract links
+    const links: LinkData[] = [];
+    $('a[href]').each((_, el) => {
+      const href = $(el).attr('href');
+      if (!href || href.startsWith('#') || href.startsWith('javascript:') || href.startsWith('mailto:') || href.startsWith('tel:')) {
+        return;
+      }
+
+      const resolved = resolveUrl(href, url);
+      if (!resolved) return;
+
+      const isInternal = isInternalUrl(resolved, this.baseHostname);
+
+      links.push({
+        href: resolved,
+        text: $(el).text().trim().slice(0, 100),
+        isInternal,
+      });
+    });
+
+    // Dedupe links
+    const uniqueLinks = Array.from(
+      new Map(links.map((l) => [l.href, l])).values()
+    );
+
+    return {
+      url,
+      statusCode,
+      loadTimeMs,
+      html,
+      title,
+      metaDescription,
+      h1,
+      canonical,
+      robotsMeta,
+      wordCount,
+      links: uniqueLinks,
+    };
   }
 
   async close() {

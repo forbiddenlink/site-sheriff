@@ -160,42 +160,52 @@ export async function runScan(ctx: ScanContext): Promise<void> {
 
     // ─────────────────────────────────────────────────────────────────────────
     // Phase 4: Accessibility checks (on first 5 pages to save time)
+    //   Requires Playwright + @axe-core/playwright — skip in fetch mode
     // ─────────────────────────────────────────────────────────────────────────
-    const pagesToCheckA11y = crawlResults.slice(0, 5).filter((r) => !r.error);
+    if (!crawler.isFetchMode) {
+      const pagesToCheckA11y = crawlResults.slice(0, 5).filter((r) => !r.error);
 
-    for (const page of pagesToCheckA11y) {
-      const a11yResult = await checkAccessibility(page.url);
+      for (const page of pagesToCheckA11y) {
+        try {
+          const a11yResult = await checkAccessibility(page.url);
 
-      // Update page result with axe findings
-      await supabaseAdmin
-        .from('PageResult')
-        .update({ axeFindings: a11yResult.violations })
-        .eq('scanRunId', scanRunId)
-        .eq('url', page.url);
+          // Update page result with axe findings
+          await supabaseAdmin
+            .from('PageResult')
+            .update({ axeFindings: a11yResult.violations })
+            .eq('scanRunId', scanRunId)
+            .eq('url', page.url);
 
-      // Create issues for violations
-      for (const violation of a11yResult.violations) {
-        allIssues.push({
-          code: `a11y_${violation.id}`,
-          severity: mapImpactToSeverity(violation.impact),
-          category: 'ACCESSIBILITY',
-          title: violation.help,
-          whyItMatters: violation.description,
-          howToFix: `See ${violation.helpUrl} for guidance on fixing this issue.`,
-          evidence: {
-            url: page.url,
-            nodes: violation.nodes.slice(0, 3), // Limit to 3 examples
-          },
-          impact: violation.impact === 'critical' ? 5 : violation.impact === 'serious' ? 4 : 3,
-          effort: 2,
-        });
+          // Create issues for violations
+          for (const violation of a11yResult.violations) {
+            allIssues.push({
+              code: `a11y_${violation.id}`,
+              severity: mapImpactToSeverity(violation.impact),
+              category: 'ACCESSIBILITY',
+              title: violation.help,
+              whyItMatters: violation.description,
+              howToFix: `See ${violation.helpUrl} for guidance on fixing this issue.`,
+              evidence: {
+                url: page.url,
+                nodes: violation.nodes.slice(0, 3), // Limit to 3 examples
+              },
+              impact: violation.impact === 'critical' ? 5 : violation.impact === 'serious' ? 4 : 3,
+              effort: 2,
+            });
+          }
+        } catch (a11yError) {
+          console.warn(`Accessibility check failed for ${page.url}:`, a11yError);
+        }
       }
+    } else {
+      console.info('Skipping accessibility checks (Playwright unavailable)');
     }
 
     // ─────────────────────────────────────────────────────────────────────────
     // Phase 5: Performance checks
+    //   Requires Playwright CDP — skip in fetch mode
     // ─────────────────────────────────────────────────────────────────────────
-    if (settings.includePerformance) {
+    if (settings.includePerformance && !crawler.isFetchMode) {
       await updateProgress(scanRunId, {
         pagesDiscovered: crawlResults.length,
         pagesScanned: crawlResults.length,
@@ -207,7 +217,13 @@ export async function runScan(ctx: ScanContext): Promise<void> {
       const pagesToCheckPerf = crawlResults.slice(0, 3).filter((r) => !r.error);
 
       for (const pageResult of pagesToCheckPerf) {
-        const perfResult = await checkPerformance(pageResult.url);
+        let perfResult;
+        try {
+          perfResult = await checkPerformance(pageResult.url);
+        } catch (perfErr) {
+          console.warn(`Performance check failed for ${pageResult.url}:`, perfErr);
+          continue;
+        }
 
         // Update the page result with performance data
         await supabaseAdmin
@@ -314,6 +330,8 @@ export async function runScan(ctx: ScanContext): Promise<void> {
           });
         }
       }
+    } else if (settings.includePerformance && crawler.isFetchMode) {
+      console.info('Skipping performance checks (Playwright unavailable)');
     }
 
     // ─────────────────────────────────────────────────────────────────────────
