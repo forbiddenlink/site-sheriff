@@ -12,6 +12,7 @@
     "@axe-core/playwright": "^4.11.1",
     "@prisma/client": "^5.22.0",
     "@supabase/supabase-js": "^2.97.0",
+    "@vercel/functions": "^3.4.3",
     "cheerio": "^1.2.0",
     "next": "16.1.6",
     "playwright": "^1.58.2",

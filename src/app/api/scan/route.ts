@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { waitUntil } from '@vercel/functions';
 import { supabaseAdmin } from '@/lib/supabase-server';
 import { CreateScanRequestSchema, ScanSettingsSchema } from '@/lib/types';
 import { normalizeUrl } from '@/lib/url-utils';
 import { runScan } from '@/lib/scanner';
+
+// Allow up to 60 seconds for the scan background work
+export const maxDuration = 60;
 
 export async function POST(request: NextRequest) {
   try {
@@ -56,14 +60,16 @@ export async function POST(request: NextRequest) {
 
     if (dbError) throw dbError;
 
-    // Start the scan in the background (fire-and-forget for MVP)
-    // In production, you'd use a proper job queue
-    runScan({
+    // Run the scan in the background using waitUntil to keep the function alive
+    // on Vercel serverless after the response is sent
+    const scanPromise = runScan({
       scanRunId: scanRun.id,
       settings: finalSettings,
     }).catch((err) => {
       console.error('Background scan failed:', err);
     });
+
+    waitUntil(scanPromise);
 
     return NextResponse.json({
       id: scanRun.id,
