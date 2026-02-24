@@ -13,6 +13,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL(
+    process.env.NEXT_PUBLIC_SITE_URL || 'https://site-sheriff.vercel.app'
+  ),
   title: "SiteSheriff — Website QA Reports in 90 Seconds",
   description:
     "Get a comprehensive website QA report covering SEO, accessibility, performance, broken links, and content issues. Prioritized and explained for you and your clients.",

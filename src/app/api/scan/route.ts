@@ -4,12 +4,35 @@ import { supabaseAdmin } from '@/lib/supabase-server';
 import { CreateScanRequestSchema, ScanSettingsSchema } from '@/lib/types';
 import { normalizeUrl } from '@/lib/url-utils';
 import { runScan } from '@/lib/scanner';
+import { rateLimit } from '@/lib/rate-limit';
 
 // Allow up to 60 seconds for the scan background work
 export const maxDuration = 60;
 
 export async function POST(request: NextRequest) {
   try {
+    // Rate limit: 10 scans per IP per 10 minutes
+    const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
+      || request.headers.get('x-real-ip')
+      || 'unknown';
+    const limit = rateLimit(ip, 10, 10 * 60 * 1000);
+
+    if (!limit.allowed) {
+      return NextResponse.json(
+        {
+          error: 'Rate limit exceeded. Please try again later.',
+          retryAfterMs: limit.resetMs,
+        },
+        {
+          status: 429,
+          headers: {
+            'Retry-After': String(Math.ceil(limit.resetMs / 1000)),
+            'X-RateLimit-Remaining': '0',
+          },
+        }
+      );
+    }
+
     const body = await request.json();
 
     // Validate request

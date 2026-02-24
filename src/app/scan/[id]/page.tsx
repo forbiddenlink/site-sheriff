@@ -54,6 +54,7 @@ interface ScanData {
     screenshotPath?: string | null;
   }>;
   error?: string;
+  clientEmailDraft?: string | null;
   createdAt: string;
 }
 
@@ -187,6 +188,7 @@ export default function ScanPage() {
   const [error, setError] = useState<string | null>(null);
   const [expandedIssues, setExpandedIssues] = useState<Set<string>>(new Set());
   const [copied, setCopied] = useState(false);
+  const [emailCopied, setEmailCopied] = useState(false);
   const [expandedScreenshot, setExpandedScreenshot] = useState<string | null>(null);
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<'severity' | 'category'>('severity');
@@ -207,6 +209,14 @@ export default function ScanPage() {
     await navigator.clipboard.writeText(globalThis.location.href);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleCopyEmail = async () => {
+    if (data?.clientEmailDraft) {
+      await navigator.clipboard.writeText(data.clientEmailDraft);
+      setEmailCopied(true);
+      setTimeout(() => setEmailCopied(false), 2000);
+    }
   };
 
   const handleDownloadPDF = () => {
@@ -684,6 +694,31 @@ export default function ScanPage() {
                   >
                     ✕
                   </button>
+                </div>
+              </div>
+            )}
+
+            {/* Client Email Draft */}
+            {data.clientEmailDraft && (
+              <div className="bg-white/2 border border-white/6 backdrop-blur-md rounded-3xl overflow-hidden mb-20">
+                <div className="px-8 py-6 border-b border-white/6 flex items-center justify-between">
+                  <div>
+                    <h2 className="text-sm font-medium text-white tracking-wide">
+                      Client Email Draft
+                    </h2>
+                    <p className="text-xs text-slate-500 mt-1">Copy and send to your client — personalize the bracketed fields</p>
+                  </div>
+                  <button
+                    onClick={handleCopyEmail}
+                    className="no-print px-5 py-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20 hover:text-emerald-300 transition-all text-sm font-medium active:scale-95"
+                  >
+                    {emailCopied ? 'Copied!' : 'Copy Email'}
+                  </button>
+                </div>
+                <div className="p-8">
+                  <pre className="text-sm text-slate-300 leading-relaxed whitespace-pre-wrap font-sans max-w-3xl">
+                    {data.clientEmailDraft}
+                  </pre>
                 </div>
               </div>
             )}

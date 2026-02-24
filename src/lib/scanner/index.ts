@@ -7,6 +7,7 @@ import { checkPerformance } from './perf-checker';
 import { checkSecurity, checkSecurityTxt } from './security-checker';
 import { checkRobotsSitemap } from './robots-checker';
 import { detectTechnologies } from './tech-detector';
+import { generateEmailDraft } from './email-draft';
 import type { ScanSettings, ScanProgress, ScanSummary, LinkData } from '../types';
 
 export interface ScanContext {
@@ -415,12 +416,25 @@ export async function runScan(ctx: ScanContext): Promise<void> {
     // Compute summary
     const summary = computeSummary(uniqueIssues, crawlResults, Date.now() - startTime, technologies);
 
+    // Generate client email draft
+    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || process.env.VERCEL_PROJECT_PRODUCTION_URL
+      ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
+      : 'https://site-sheriff.vercel.app';
+    const reportUrl = `${siteUrl}/scan/${scanRunId}`;
+    const clientEmailDraft = generateEmailDraft(
+      scanRun.inputUrl,
+      summary,
+      uniqueIssues,
+      reportUrl
+    );
+
     // Update scan run with success
     await supabaseAdmin
       .from('ScanRun')
       .update({
         status: 'SUCCEEDED',
         summary: summary,
+        clientEmailDraft: clientEmailDraft,
         progress: {
           pagesDiscovered: crawlResults.length,
           pagesScanned: crawlResults.length,
