@@ -68,8 +68,9 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error('Error creating scan:', error);
+    const message = error instanceof Error ? error.message : 'Unknown error';
     return NextResponse.json(
-      { error: 'Failed to create scan' },
+      { error: 'Failed to create scan', detail: message },
       { status: 500 }
     );
   }
