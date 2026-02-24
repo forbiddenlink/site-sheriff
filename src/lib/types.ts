@@ -35,6 +35,7 @@ export interface ScanSummary {
     performance: number;
     links: number;
     content: number;
+    security: number;
   };
   issueCount: {
     P0: number;
@@ -51,6 +52,12 @@ export interface ScanSummary {
   }[];
   pagesCrawled: number;
   scanDurationMs: number;
+  technologies?: Array<{
+    name: string;
+    category: string;
+    confidence: string;
+    evidence: string;
+  }>;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

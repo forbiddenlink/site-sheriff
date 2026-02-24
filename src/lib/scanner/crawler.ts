@@ -4,6 +4,18 @@ import type { LinkData } from '../types';
 
 type Browser = import('playwright').Browser;
 
+export interface ImageData {
+  src: string;
+  alt: string | null;
+  width: string | null;
+  height: string | null;
+}
+
+export interface HeadingData {
+  level: number;
+  text: string;
+}
+
 export interface CrawlResult {
   url: string;
   statusCode: number;
@@ -18,6 +30,16 @@ export interface CrawlResult {
   links: LinkData[];
   screenshotBase64?: string;
   error?: string;
+  // Extended fields
+  responseHeaders: Record<string, string>;
+  cookies: string[];
+  images: ImageData[];
+  headings: HeadingData[];
+  ogTags: Record<string, string | null>;
+  viewport: string | null;
+  scriptCount: number;
+  stylesheetCount: number;
+  lang: string | null;
 }
 
 export interface CrawlerOptions {
@@ -152,7 +174,20 @@ export class Crawler {
       const statusCode = response.status;
       const html = await response.text();
 
-      return this.parseHtml(url, statusCode, loadTimeMs, html);
+      // Capture response headers
+      const responseHeaders: Record<string, string> = {};
+      response.headers.forEach((value, key) => {
+        responseHeaders[key.toLowerCase()] = value;
+      });
+
+      // Capture cookies from Set-Cookie header
+      const cookies: string[] = [];
+      const setCookie = response.headers.get('set-cookie');
+      if (setCookie) {
+        cookies.push(...setCookie.split(/,(?=\s*\w+=)/));
+      }
+
+      return this.parseHtml(url, statusCode, loadTimeMs, html, responseHeaders, cookies);
     } catch (error) {
       return {
         url,
@@ -167,6 +202,15 @@ export class Crawler {
         wordCount: 0,
         links: [],
         error: error instanceof Error ? error.message : 'Unknown error',
+        responseHeaders: {},
+        cookies: [],
+        images: [],
+        headings: [],
+        ogTags: {},
+        viewport: null,
+        scriptCount: 0,
+        stylesheetCount: 0,
+        lang: null,
       };
     }
   }
@@ -190,7 +234,18 @@ export class Crawler {
       // Get HTML content
       const html = await page.content();
 
-      const result = this.parseHtml(url, statusCode, loadTimeMs, html);
+      // Capture response headers
+      const responseHeaders: Record<string, string> = {};
+      const allHeaders = response?.headers() ?? {};
+      for (const [key, value] of Object.entries(allHeaders)) {
+        responseHeaders[key.toLowerCase()] = value;
+      }
+
+      // Capture cookies
+      const browserCookies = await page.context().cookies();
+      const cookies = browserCookies.map(c => `${c.name}=${c.value}; ${c.secure ? 'Secure; ' : ''}${c.httpOnly ? 'HttpOnly; ' : ''}SameSite=${c.sameSite}`);
+
+      const result = this.parseHtml(url, statusCode, loadTimeMs, html, responseHeaders, cookies);
 
       // Take screenshot if enabled
       if (this.options.screenshotMode !== 'none') {
@@ -221,6 +276,15 @@ export class Crawler {
         wordCount: 0,
         links: [],
         error: error instanceof Error ? error.message : 'Unknown error',
+        responseHeaders: {},
+        cookies: [],
+        images: [],
+        headings: [],
+        ogTags: {},
+        viewport: null,
+        scriptCount: 0,
+        stylesheetCount: 0,
+        lang: null,
       };
     } finally {
       await page.close();
@@ -229,7 +293,7 @@ export class Crawler {
 
   // ── Shared HTML parsing ────────────────────────────────────────────────
 
-  private parseHtml(url: string, statusCode: number, loadTimeMs: number, html: string): CrawlResult {
+  private parseHtml(url: string, statusCode: number, loadTimeMs: number, html: string, responseHeaders: Record<string, string> = {}, cookies: string[] = []): CrawlResult {
     const $ = cheerio.load(html);
 
     // Extract SEO data
@@ -242,6 +306,50 @@ export class Crawler {
     // Count words in body text
     const bodyText = $('body').text().replace(/\s+/g, ' ').trim();
     const wordCount = bodyText.split(' ').filter(Boolean).length;
+
+    // Extract all headings (h1-h6)
+    const headings: HeadingData[] = [];
+    $('h1, h2, h3, h4, h5, h6').each((_, el) => {
+      const tag = $(el).prop('tagName')?.toLowerCase() ?? '';
+      const level = Number.parseInt(tag.replace('h', ''), 10);
+      if (!Number.isNaN(level)) {
+        headings.push({ level, text: $(el).text().trim().slice(0, 200) });
+      }
+    });
+
+    // Extract images with alt text
+    const images: ImageData[] = [];
+    $('img').each((_, el) => {
+      const src = $(el).attr('src');
+      if (src) {
+        images.push({
+          src,
+          alt: $(el).attr('alt') ?? null,
+          width: $(el).attr('width') ?? null,
+          height: $(el).attr('height') ?? null,
+        });
+      }
+    });
+
+    // Extract Open Graph and Twitter meta tags
+    const ogTags: Record<string, string | null> = {};
+    $('meta[property^="og:"], meta[name^="twitter:"]').each((_, el) => {
+      const property = $(el).attr('property') || $(el).attr('name');
+      const content = $(el).attr('content') || null;
+      if (property) {
+        ogTags[property] = content;
+      }
+    });
+
+    // Viewport meta
+    const viewport = $('meta[name="viewport"]').attr('content') || null;
+
+    // Count scripts and stylesheets
+    const scriptCount = $('script[src]').length;
+    const stylesheetCount = $('link[rel="stylesheet"]').length;
+
+    // Language
+    const lang = $('html').attr('lang') || null;
 
     // Extract links
     const links: LinkData[] = [];
@@ -280,6 +388,15 @@ export class Crawler {
       robotsMeta,
       wordCount,
       links: uniqueLinks,
+      responseHeaders,
+      cookies,
+      images,
+      headings,
+      ogTags,
+      viewport,
+      scriptCount,
+      stylesheetCount,
+      lang,
     };
   }
 

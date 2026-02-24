@@ -2,8 +2,11 @@ import { supabaseAdmin } from '../supabase-server';
 import { Crawler, type CrawlResult } from './crawler';
 import { checkLinks, findBrokenLinks, findRedirectChains } from './link-checker';
 import { checkAccessibility, mapImpactToSeverity } from './a11y-checker';
-import { checkSEO } from './seo-checker';
+import { checkSEO, checkDuplicates } from './seo-checker';
 import { checkPerformance } from './perf-checker';
+import { checkSecurity, checkSecurityTxt } from './security-checker';
+import { checkRobotsSitemap } from './robots-checker';
+import { detectTechnologies } from './tech-detector';
 import type { ScanSettings, ScanProgress, ScanSummary, LinkData } from '../types';
 
 export interface ScanContext {
@@ -88,7 +91,7 @@ export async function runScan(ctx: ScanContext): Promise<void> {
     const allIssues: Array<{
       code: string;
       severity: 'P0' | 'P1' | 'P2' | 'P3';
-      category: 'SEO' | 'ACCESSIBILITY' | 'PERFORMANCE' | 'LINKS' | 'CONTENT';
+      category: 'SEO' | 'ACCESSIBILITY' | 'PERFORMANCE' | 'LINKS' | 'CONTENT' | 'SECURITY';
       title: string;
       whyItMatters: string | null;
       howToFix: string | null;
@@ -102,6 +105,48 @@ export async function runScan(ctx: ScanContext): Promise<void> {
         const seoIssues = checkSEO(result);
         allIssues.push(...seoIssues);
       }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Phase 2b: Security checks
+    // ─────────────────────────────────────────────────────────────────────────
+    for (const result of crawlResults) {
+      if (!result.error) {
+        const securityIssues = checkSecurity(result);
+        allIssues.push(...securityIssues);
+      }
+    }
+
+    // Check security.txt (once per scan)
+    try {
+      const secTxtIssues = await checkSecurityTxt(normalizedUrl);
+      allIssues.push(...secTxtIssues);
+    } catch {
+      console.warn('security.txt check failed');
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Phase 2c: Robots.txt and sitemap checks
+    // ─────────────────────────────────────────────────────────────────────────
+    try {
+      const robotsIssues = await checkRobotsSitemap(normalizedUrl);
+      allIssues.push(...robotsIssues);
+    } catch {
+      console.warn('Robots/sitemap check failed');
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Phase 2d: Tech detection + duplicate content detection
+    // ─────────────────────────────────────────────────────────────────────────
+    let technologies: Array<{ name: string; category: string; confidence: string; evidence: string }> = [];
+    if (crawlResults.length > 0 && !crawlResults[0].error) {
+      technologies = detectTechnologies(crawlResults[0]);
+    }
+
+    // Duplicate title/description detection (cross-page)
+    if (crawlResults.length > 1) {
+      const dupeIssues = checkDuplicates(crawlResults);
+      allIssues.push(...dupeIssues);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -368,7 +413,7 @@ export async function runScan(ctx: ScanContext): Promise<void> {
     }
 
     // Compute summary
-    const summary = computeSummary(uniqueIssues, crawlResults, Date.now() - startTime);
+    const summary = computeSummary(uniqueIssues, crawlResults, Date.now() - startTime, technologies);
 
     // Update scan run with success
     await supabaseAdmin
@@ -418,7 +463,8 @@ function dedupeIssues<T extends { code: string; evidence: { url?: string } }>(is
 function computeSummary(
   issues: Array<{ severity: string; category: string; code: string; title: string }>,
   crawlResults: CrawlResult[],
-  scanDurationMs: number
+  scanDurationMs: number,
+  technologies: Array<{ name: string; category: string; confidence: string; evidence: string }> = []
 ): ScanSummary {
   // Count issues by severity
   const issueCount = {
@@ -435,6 +481,7 @@ function computeSummary(
     performance: issues.filter((i) => i.category === 'PERFORMANCE').length,
     links: issues.filter((i) => i.category === 'LINKS').length,
     content: issues.filter((i) => i.category === 'CONTENT').length,
+    security: issues.filter((i) => i.category === 'SECURITY').length,
   };
 
   // Compute category scores (100 - penalty)
@@ -445,15 +492,17 @@ function computeSummary(
     performance: Math.max(0, 100 - Math.min(categoryIssues.performance * 10, maxPenalty)),
     links: Math.max(0, 100 - Math.min(categoryIssues.links * 5, maxPenalty)),
     content: Math.max(0, 100 - Math.min(categoryIssues.content * 10, maxPenalty)),
+    security: Math.max(0, 100 - Math.min(categoryIssues.security * 8, maxPenalty)),
   };
 
-  // Overall score (weighted average)
+  // Overall score (weighted average — 6 categories)
   const overallScore = Math.round(
-    categoryScores.seo * 0.25 +
-    categoryScores.accessibility * 0.25 +
-    categoryScores.performance * 0.2 +
-    categoryScores.links * 0.15 +
-    categoryScores.content * 0.15
+    categoryScores.seo * 0.2 +
+    categoryScores.accessibility * 0.2 +
+    categoryScores.performance * 0.15 +
+    categoryScores.links * 0.1 +
+    categoryScores.content * 0.15 +
+    categoryScores.security * 0.2
   );
 
   // Top issues (group by code)
@@ -491,6 +540,7 @@ function computeSummary(
     topIssues,
     pagesCrawled: crawlResults.length,
     scanDurationMs,
+    technologies,
   };
 }
 

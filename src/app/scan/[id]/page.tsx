@@ -27,6 +27,12 @@ interface ScanData {
       category: string;
       count: number;
     }>;
+    technologies?: Array<{
+      name: string;
+      category: string;
+      confidence: string;
+      evidence: string;
+    }>;
   } | null;
   issues: Array<{
     id: string;
@@ -135,6 +141,7 @@ function SeverityBadge({ severity }: { severity: string }) {
 function CategoryBadge({ category }: { category: string }) {
   const styles: Record<string, string> = {
     SEO: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
+    SECURITY: 'bg-rose-500/10 text-rose-400 border-rose-500/20',
     ACCESSIBILITY: 'bg-purple-500/10 text-purple-400 border-purple-500/20',
     PERFORMANCE: 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20',
     LINKS: 'bg-orange-500/10 text-orange-400 border-orange-500/20',
@@ -181,6 +188,8 @@ export default function ScanPage() {
   const [expandedIssues, setExpandedIssues] = useState<Set<string>>(new Set());
   const [copied, setCopied] = useState(false);
   const [expandedScreenshot, setExpandedScreenshot] = useState<string | null>(null);
+  const [activeCategory, setActiveCategory] = useState<string | null>(null);
+  const [sortBy, setSortBy] = useState<'severity' | 'category'>('severity');
 
   const toggleIssue = (issueId: string) => {
     setExpandedIssues((prev) => {
@@ -198,6 +207,10 @@ export default function ScanPage() {
     await navigator.clipboard.writeText(globalThis.location.href);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleDownloadPDF = () => {
+    globalThis.print();
   };
 
   useEffect(() => {
@@ -260,15 +273,34 @@ export default function ScanPage() {
   const isFailed = data.status === 'FAILED';
   const isRunning = data.status === 'QUEUED' || data.status === 'RUNNING';
 
+  const filteredIssues = data?.issues
+    ?.filter((i) => !activeCategory || i.category === activeCategory)
+    .sort((a, b) => {
+      if (sortBy === 'severity') {
+        const order = { P0: 0, P1: 1, P2: 2, P3: 3 };
+        return (order[a.severity as keyof typeof order] ?? 4) - (order[b.severity as keyof typeof order] ?? 4);
+      }
+      return a.category.localeCompare(b.category);
+    }) ?? [];
+
+  const categoryFilters = ['SEO', 'SECURITY', 'PERFORMANCE', 'ACCESSIBILITY', 'LINKS', 'CONTENT'];
+
   return (
     <main className="min-h-screen bg-[#030712] p-8 lg:p-12 selection:bg-emerald-500/30">
+      <style jsx global>{`
+        @media print {
+          body { background: white !important; color: black !important; }
+          .no-print { display: none !important; }
+          * { color: black !important; border-color: #e5e7eb !important; background: white !important; }
+        }
+      `}</style>
       <div className="max-w-5xl mx-auto">
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-12">
           <div>
             <Link
               href="/"
-              className="text-slate-500 hover:text-white transition-colors text-xs font-mono uppercase tracking-widest mb-4 inline-block"
+              className="no-print text-slate-500 hover:text-white transition-colors text-xs font-mono uppercase tracking-widest mb-4 inline-block"
             >
               ← System core
             </Link>
@@ -281,12 +313,20 @@ export default function ScanPage() {
           </div>
 
           {isComplete && (
-            <button
-              onClick={handleShareReport}
-              className="px-5 py-2.5 rounded-xl bg-white/4 border border-white/8 text-slate-300 hover:bg-white/8 hover:text-white transition-all text-sm font-medium backdrop-blur-md active:scale-95"
-            >
-              {copied ? 'Copied!' : 'Share Report'}
-            </button>
+            <div className="no-print flex items-center gap-3">
+              <button
+                onClick={handleDownloadPDF}
+                className="px-5 py-2.5 rounded-xl bg-white/4 border border-white/8 text-slate-300 hover:bg-white/8 hover:text-white transition-all text-sm font-medium backdrop-blur-md active:scale-95"
+              >
+                Download PDF
+              </button>
+              <button
+                onClick={handleShareReport}
+                className="px-5 py-2.5 rounded-xl bg-white/4 border border-white/8 text-slate-300 hover:bg-white/8 hover:text-white transition-all text-sm font-medium backdrop-blur-md active:scale-95"
+              >
+                {copied ? 'Copied!' : 'Share Report'}
+              </button>
+            </div>
           )}
         </div>
 
@@ -381,29 +421,96 @@ export default function ScanPage() {
               </div>
             </div>
 
+            {/* Tech Stack */}
+            {data.summary.technologies && data.summary.technologies.length > 0 && (
+              <div className="bg-white/2 border border-white/6 backdrop-blur-md rounded-3xl p-8 mb-8">
+                <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-6">
+                  Detected Technologies
+                </h2>
+                <div className="flex flex-wrap gap-3">
+                  {data.summary.technologies.map((tech) => (
+                    <div key={tech.name} className="px-4 py-2 bg-white/4 border border-white/8 rounded-xl">
+                      <span className="text-sm font-medium text-slate-200">{tech.name}</span>
+                      <span className="text-xs text-slate-500 ml-2">{tech.category}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Issues list (The Ghost Rows) */}
             <div className="bg-white/2 border border-white/6 backdrop-blur-md rounded-3xl overflow-hidden mb-20">
-              <div className="px-8 py-6 border-b border-white/6 flex items-center justify-between">
-                <h2 className="text-sm font-medium text-white tracking-wide">
-                  Identified Anomalies
-                </h2>
-                <span className="text-xs font-mono text-slate-500 bg-white/4 px-2.5 py-1 rounded-lg">
-                  COUNT: {data.issues.length}
-                </span>
+              <div className="px-8 py-6 border-b border-white/6 space-y-4">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-sm font-medium text-white tracking-wide">
+                    Identified Anomalies
+                  </h2>
+                  <span className="text-xs font-mono text-slate-500 bg-white/4 px-2.5 py-1 rounded-lg">
+                    COUNT: {filteredIssues.length}{activeCategory ? ` / ${data.issues.length}` : ''}
+                  </span>
+                </div>
+                <div className="no-print flex flex-wrap items-center gap-2">
+                  <button
+                    onClick={() => setActiveCategory(null)}
+                    className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest rounded-full border transition-all ${
+                      activeCategory === null
+                        ? 'bg-white/10 text-white border-white/20'
+                        : 'bg-white/2 text-slate-400 border-white/6 hover:bg-white/6'
+                    }`}
+                  >
+                    All
+                  </button>
+                  {categoryFilters.map((cat) => (
+                    <button
+                      key={cat}
+                      onClick={() => setActiveCategory(activeCategory === cat ? null : cat)}
+                      className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest rounded-full border transition-all ${
+                        activeCategory === cat
+                          ? 'bg-white/10 text-white border-white/20'
+                          : 'bg-white/2 text-slate-400 border-white/6 hover:bg-white/6'
+                      }`}
+                    >
+                      {cat}
+                    </button>
+                  ))}
+                  <div className="ml-auto flex items-center gap-1">
+                    <span className="text-[10px] text-slate-500 uppercase tracking-widest mr-2">Sort:</span>
+                    <button
+                      onClick={() => setSortBy('severity')}
+                      className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest rounded-full border transition-all ${
+                        sortBy === 'severity'
+                          ? 'bg-white/10 text-white border-white/20'
+                          : 'bg-white/2 text-slate-400 border-white/6 hover:bg-white/6'
+                      }`}
+                    >
+                      Severity
+                    </button>
+                    <button
+                      onClick={() => setSortBy('category')}
+                      className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest rounded-full border transition-all ${
+                        sortBy === 'category'
+                          ? 'bg-white/10 text-white border-white/20'
+                          : 'bg-white/2 text-slate-400 border-white/6 hover:bg-white/6'
+                      }`}
+                    >
+                      Category
+                    </button>
+                  </div>
+                </div>
               </div>
 
-              {data.issues.length === 0 ? (
+              {filteredIssues.length === 0 ? (
                 <div className="p-12 text-center text-slate-500 font-mono text-sm">
                   <div className="flex justify-center mb-4">
                     <svg className="w-10 h-10 text-emerald-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.5)]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
                   </div>
-                  SYSTEM.STATUS == PERFECT
+                  {activeCategory ? `No ${activeCategory} issues found` : 'SYSTEM.STATUS == PERFECT'}
                 </div>
               ) : (
                 <div className="divide-y divide-white/4">
-                  {data.issues.map((issue) => {
+                  {filteredIssues.map((issue) => {
                     const isExpanded = expandedIssues.has(issue.id);
                     return (
                       <div key={issue.id} className="hover:bg-white/2 transition-colors duration-300 group">
