@@ -14,7 +14,27 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "SiteSheriff — Website QA Reports in 90 Seconds",
-  description: "Get a comprehensive website QA report covering SEO, accessibility, performance, broken links, and content issues. Prioritized and explained for you and your clients.",
+  description:
+    "Get a comprehensive website QA report covering SEO, accessibility, performance, broken links, and content issues. Prioritized and explained for you and your clients.",
+  icons: {
+    icon: "/icon.png",
+    shortcut: "/icon.png",
+    apple: "/icon.png",
+  },
+  openGraph: {
+    title: "SiteSheriff — Website QA Reports in 90 Seconds",
+    description:
+      "Get a comprehensive website QA report covering SEO, accessibility, performance, broken links, and content issues. Prioritized and explained for you and your clients.",
+    images: [
+      {
+        url: "/og-image.png",
+        width: 1200,
+        height: 630,
+        alt: "SiteSheriff Open Graph Image",
+      },
+    ],
+    type: "website",
+  },
 };
 
 export default function RootLayout({
@@ -23,7 +43,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >

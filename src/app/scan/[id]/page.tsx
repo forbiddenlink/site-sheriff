@@ -57,14 +57,30 @@ function ScoreRing({ score, size = 120 }: { score: number; size?: number }) {
   const offset = circumference - (score / 100) * circumference;
 
   const getColor = (s: number) => {
-    if (s >= 80) return '#10b981'; // emerald
-    if (s >= 60) return '#f59e0b'; // amber
-    return '#ef4444'; // red
+    if (s >= 80) return 'url(#emeraldGrad)';
+    if (s >= 50) return 'url(#amberGrad)';
+    return 'url(#redGrad)';
   };
 
   return (
-    <div className="relative" style={{ width: size, height: size }}>
-      <svg className="transform -rotate-90" width={size} height={size}>
+    <div className="relative flex items-center justify-center">
+      {/* Ambient Glow */}
+      <div className="absolute inset-0 bg-white/5 blur-2xl rounded-full" />
+      <svg className="transform -rotate-90 relative z-10" width={size} height={size}>
+        <defs>
+          <linearGradient id="emeraldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor="#34d399" />
+            <stop offset="100%" stopColor="#10b981" />
+          </linearGradient>
+          <linearGradient id="amberGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor="#fbbf24" />
+            <stop offset="100%" stopColor="#d97706" />
+          </linearGradient>
+          <linearGradient id="redGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor="#f87171" />
+            <stop offset="100%" stopColor="#ef4444" />
+          </linearGradient>
+        </defs>
         <circle
           cx={size / 2}
           cy={size / 2}
@@ -72,7 +88,7 @@ function ScoreRing({ score, size = 120 }: { score: number; size?: number }) {
           stroke="currentColor"
           strokeWidth={strokeWidth}
           fill="transparent"
-          className="text-slate-700"
+          className="text-white/4"
         />
         <circle
           cx={size / 2}
@@ -87,24 +103,28 @@ function ScoreRing({ score, size = 120 }: { score: number; size?: number }) {
           className="transition-all duration-1000"
         />
       </svg>
-      <div className="absolute inset-0 flex items-center justify-center">
-        <span className="text-3xl font-bold text-white">{score}</span>
+      <div className="absolute inset-0 flex flex-col items-center justify-center z-20">
+        <span className="text-4xl font-bold tracking-tighter text-transparent bg-clip-text bg-[linear-gradient(to_bottom,#fff,#94a3b8)]">
+          {score}
+        </span>
       </div>
     </div>
   );
 }
 
 function SeverityBadge({ severity }: { severity: string }) {
-  const colors: Record<string, string> = {
-    P0: 'bg-red-500/20 text-red-400 border-red-500/30',
-    P1: 'bg-orange-500/20 text-orange-400 border-orange-500/30',
-    P2: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
-    P3: 'bg-slate-500/20 text-slate-400 border-slate-500/30',
+  const styles: Record<string, string> = {
+    P0: 'bg-red-500/10 text-red-500 border-red-500/20',
+    P1: 'bg-orange-500/10 text-orange-500 border-orange-500/20',
+    P2: 'bg-amber-500/10 text-amber-500 border-amber-500/20',
+    P3: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
   };
+
+  const badgeStyle = styles[severity] || 'bg-slate-500/10 text-slate-400 border-slate-500/20';
 
   return (
     <span
-      className={`px-2 py-0.5 text-xs font-medium rounded border ${colors[severity] || colors.P2}`}
+      className={`px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-widest rounded-full border ${badgeStyle}`}
     >
       {severity}
     </span>
@@ -112,17 +132,19 @@ function SeverityBadge({ severity }: { severity: string }) {
 }
 
 function CategoryBadge({ category }: { category: string }) {
-  const colors: Record<string, string> = {
-    SEO: 'bg-blue-500/20 text-blue-400',
-    ACCESSIBILITY: 'bg-purple-500/20 text-purple-400',
-    PERFORMANCE: 'bg-cyan-500/20 text-cyan-400',
-    LINKS: 'bg-amber-500/20 text-amber-400',
-    CONTENT: 'bg-emerald-500/20 text-emerald-400',
+  const styles: Record<string, string> = {
+    SEO: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
+    ACCESSIBILITY: 'bg-purple-500/10 text-purple-400 border-purple-500/20',
+    PERFORMANCE: 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20',
+    LINKS: 'bg-orange-500/10 text-orange-400 border-orange-500/20',
+    CONTENT: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
   };
+
+  const badgeStyle = styles[category] || 'bg-slate-500/10 text-slate-400 border-slate-500/20';
 
   return (
     <span
-      className={`px-2 py-0.5 text-xs font-medium rounded ${colors[category] || 'bg-slate-500/20 text-slate-400'}`}
+      className={`px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-widest rounded-full border ${badgeStyle}`}
     >
       {category}
     </span>
@@ -165,15 +187,15 @@ export default function ScanPage() {
 
   if (error) {
     return (
-      <main className="min-h-screen bg-slate-950 flex items-center justify-center p-8">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold text-white mb-4">Error</h1>
-          <p className="text-slate-400 mb-6">{error}</p>
+      <main className="min-h-screen bg-[#030712] flex items-center justify-center p-8">
+        <div className="text-center p-8 bg-white/2 border border-red-500/20 rounded-2xl backdrop-blur-md">
+          <h1 className="text-xl font-medium text-red-400 mb-2">Diagnostic Error</h1>
+          <p className="text-slate-400 text-sm mb-6">{error}</p>
           <Link
             href="/"
-            className="text-emerald-400 hover:text-emerald-300 underline"
+            className="text-xs font-mono text-emerald-400 hover:text-emerald-300 transition-colors uppercase tracking-widest"
           >
-            ← Back to home
+            ← Return to scanner
           </Link>
         </div>
       </main>
@@ -182,8 +204,11 @@ export default function ScanPage() {
 
   if (!data) {
     return (
-      <main className="min-h-screen bg-slate-950 flex items-center justify-center">
-        <div className="animate-pulse text-slate-400">Loading scan...</div>
+      <main className="min-h-screen bg-[#030712] flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+           <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_8px_rgba(52,211,153,0.8)]" />
+           <div className="text-xs font-mono text-slate-500 tracking-widest uppercase">Initializing Telemetry...</div>
+        </div>
       </main>
     );
   }
@@ -193,86 +218,73 @@ export default function ScanPage() {
   const isRunning = data.status === 'QUEUED' || data.status === 'RUNNING';
 
   return (
-    <main className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 p-8">
-      <div className="max-w-4xl mx-auto">
+    <main className="min-h-screen bg-[#030712] p-8 lg:p-12 selection:bg-emerald-500/30">
+      <div className="max-w-5xl mx-auto">
         {/* Header */}
-        <div className="flex items-start justify-between mb-8">
+        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-12">
           <div>
             <Link
               href="/"
-              className="text-slate-500 hover:text-slate-300 text-sm mb-2 inline-block"
+              className="text-slate-500 hover:text-white transition-colors text-xs font-mono uppercase tracking-widest mb-4 inline-block"
             >
-              ← New scan
+              ← System core
             </Link>
-            <h1 className="text-2xl font-bold text-white truncate max-w-lg">
+            <h1 className="text-3xl font-semibold text-white tracking-tight break-all max-w-2xl">
               {data.inputUrl}
             </h1>
-            <p className="text-slate-500 text-sm mt-1">
-              Started {new Date(data.createdAt).toLocaleString()}
+            <p className="text-slate-500 text-xs font-mono mt-2">
+              SESSION_ID: {data.id.split('-')[0]} • {new Date(data.createdAt).toLocaleTimeString()}
             </p>
           </div>
 
           {isComplete && (
-            <button className="px-4 py-2 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 transition-colors text-sm">
-              Share Report
+            <button className="px-5 py-2.5 rounded-xl bg-white/4 border border-white/8 text-slate-300 hover:bg-white/8 hover:text-white transition-all text-sm font-medium backdrop-blur-md active:scale-95">
+              Export Audit Log
             </button>
           )}
         </div>
 
         {/* Progress / Running state */}
         {isRunning && (
-          <div className="bg-slate-800/50 rounded-2xl p-8 border border-slate-700/50 mb-8">
-            <div className="flex items-center gap-4 mb-6">
-              <div className="w-10 h-10 rounded-full bg-emerald-500/20 flex items-center justify-center">
-                <svg
-                  className="w-5 h-5 text-emerald-400 animate-spin"
-                  viewBox="0 0 24 24"
-                >
-                  <circle
-                    className="opacity-25"
-                    cx="12"
-                    cy="12"
-                    r="10"
-                    stroke="currentColor"
-                    strokeWidth="4"
-                    fill="none"
-                  />
-                  <path
-                    className="opacity-75"
-                    fill="currentColor"
-                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-                  />
-                </svg>
-              </div>
-              <div>
-                <h2 className="text-lg font-semibold text-white">
-                  Scanning...
-                </h2>
-                <p className="text-slate-400 text-sm capitalize">
-                  {data.progress.stage}
-                  {data.progress.currentPage && ` • ${data.progress.currentPage}`}
-                </p>
+          <div className="bg-white/2 border border-white/6 backdrop-blur-md rounded-3xl p-8 mb-12 relative overflow-hidden">
+            {/* The Scanning Laser Effect */}
+            <div className="absolute top-0 left-0 w-full h-px bg-[linear-gradient(to_right,transparent,rgba(52,211,153,0.8),transparent)] animate-[pulse_2s_ease-in-out_infinite]" />
+            
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-8 mb-10">
+              <div className="flex items-center gap-5">
+                <div className="relative flex items-center justify-center w-12 h-12">
+                   <div className="absolute inset-0 rounded-full border border-emerald-500/30 animate-[ping_2s_cubic-bezier(0,0,0.2,1)_infinite]" />
+                   <div className="w-3 h-3 rounded-full bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,1)]" />
+                </div>
+                <div>
+                  <h2 className="text-sm font-medium text-white uppercase tracking-widest mb-1">
+                    Telemetry Active
+                  </h2>
+                  <p className="text-emerald-400/80 text-xs font-mono">
+                    [{data.progress.stage}] {data.progress.currentPage && `› ${data.progress.currentPage.substring(0,40)}...`}
+                  </p>
+                </div>
               </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-4 text-center">
-              <div className="p-4 rounded-xl bg-slate-900/50">
-                <div className="text-2xl font-bold text-white">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="p-5 rounded-2xl bg-white/2 border border-white/4">
+                <div className="text-3xl font-bold tracking-tighter text-transparent bg-clip-text bg-[linear-gradient(to_bottom,#fff,#94a3b8)]">
                   {data.progress.pagesDiscovered}
                 </div>
-                <div className="text-sm text-slate-500">Pages found</div>
+                <div className="text-xs font-medium text-slate-500 uppercase tracking-wider mt-1">Nodes Discovered</div>
               </div>
-              <div className="p-4 rounded-xl bg-slate-900/50">
-                <div className="text-2xl font-bold text-white">
+              <div className="p-5 rounded-2xl bg-white/2 border border-white/4">
+                <div className="text-3xl font-bold tracking-tighter text-transparent bg-clip-text bg-[linear-gradient(to_bottom,#fff,#94a3b8)]">
                   {data.progress.pagesScanned}
                 </div>
-                <div className="text-sm text-slate-500">Pages scanned</div>
+                <div className="text-xs font-medium text-slate-500 uppercase tracking-wider mt-1">Nodes Scanned</div>
               </div>
-              <div className="p-4 rounded-xl bg-slate-900/50">
-                <div className="text-2xl font-bold text-white">
+              <div className="p-5 rounded-2xl bg-white/2 border border-white/4">
+                <div className="text-3xl font-bold tracking-tighter text-transparent bg-clip-text bg-[linear-gradient(to_bottom,#fff,#94a3b8)]">
                   {data.progress.checksCompleted}
                 </div>
-                <div className="text-sm text-slate-500">Checks run</div>
+                <div className="text-xs font-medium text-slate-500 uppercase tracking-wider mt-1">Audits Run</div>
               </div>
             </div>
           </div>
@@ -280,75 +292,99 @@ export default function ScanPage() {
 
         {/* Error state */}
         {isFailed && (
-          <div className="bg-red-500/10 border border-red-500/30 rounded-2xl p-8 mb-8">
-            <h2 className="text-lg font-semibold text-red-400 mb-2">
-              Scan failed
+          <div className="bg-red-500/5 border border-red-500/20 rounded-3xl p-8 mb-12 backdrop-blur-md">
+            <h2 className="text-sm font-bold text-red-500 uppercase tracking-widest mb-2">
+              Critical Failure
             </h2>
-            <p className="text-slate-300">{data.error || 'Unknown error'}</p>
+            <p className="text-slate-300 font-mono text-sm">{data.error || 'Unknown error code returned from engine.'}</p>
           </div>
         )}
 
         {/* Results */}
         {isComplete && data.summary && (
           <>
-            {/* Score hero */}
-            <div className="bg-slate-800/50 rounded-2xl p-8 border border-slate-700/50 mb-8">
-              <div className="flex items-center gap-8">
-                <ScoreRing score={data.summary.overallScore} />
-                <div className="flex-1">
-                  <h2 className="text-xl font-semibold text-white mb-4">
-                    Overall Score
+            {/* Score Bento Box */}
+            <div className="grid grid-cols-1 lg:grid-cols-[auto_1fr] gap-6 mb-8">
+              {/* Overall Score Card */}
+              <div className="bg-white/2 border border-white/6 backdrop-blur-md rounded-3xl p-8 flex flex-col items-center justify-center">
+                 <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-6 block w-full text-center">
+                    System Health
+                 </h2>
+                 <ScoreRing score={data.summary.overallScore} size={160} />
+              </div>
+              
+              {/* Category Matrix */}
+              <div className="bg-white/2 border border-white/6 backdrop-blur-md rounded-3xl p-8">
+                  <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-8">
+                    Diagnostic Vectors
                   </h2>
-                  <div className="grid grid-cols-5 gap-2">
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-6">
                     {Object.entries(data.summary.categoryScores).map(
                       ([cat, score]) => (
-                        <div key={cat} className="text-center">
-                          <div className="text-lg font-bold text-white">
+                        <div key={cat} className="flex flex-col">
+                          <div className="text-3xl font-bold tracking-tighter text-transparent bg-clip-text bg-[linear-gradient(to_bottom,#fff,#94a3b8)]">
                             {score}
                           </div>
-                          <div className="text-xs text-slate-500 capitalize">
+                          <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-1">
                             {cat}
                           </div>
                         </div>
                       )
                     )}
                   </div>
-                </div>
               </div>
             </div>
 
-            {/* Issues list */}
-            <div className="bg-slate-800/50 rounded-2xl border border-slate-700/50 overflow-hidden">
-              <div className="p-6 border-b border-slate-700/50">
-                <h2 className="text-lg font-semibold text-white">
-                  Issues ({data.issues.length})
+            {/* Issues list (The Ghost Rows) */}
+            <div className="bg-white/2 border border-white/6 backdrop-blur-md rounded-3xl overflow-hidden mb-20">
+              <div className="px-8 py-6 border-b border-white/6 flex items-center justify-between">
+                <h2 className="text-sm font-medium text-white tracking-wide">
+                  Identified Anomalies
                 </h2>
+                <span className="text-xs font-mono text-slate-500 bg-white/4 px-2.5 py-1 rounded-lg">
+                  COUNT: {data.issues.length}
+                </span>
               </div>
 
               {data.issues.length === 0 ? (
-                <div className="p-8 text-center text-slate-500">
-                  No issues found! 🎉
+                <div className="p-12 text-center text-slate-500 font-mono text-sm">
+                  <div className="flex justify-center mb-4">
+                    <svg className="w-10 h-10 text-emerald-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.5)]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </div>
+                  SYSTEM.STATUS == PERFECT
                 </div>
               ) : (
-                <div className="divide-y divide-slate-700/50">
+                <div className="divide-y divide-white/4">
                   {data.issues.map((issue) => (
-                    <div key={issue.id} className="p-4 hover:bg-slate-800/30">
-                      <div className="flex items-start gap-3">
-                        <SeverityBadge severity={issue.severity} />
+                    <div key={issue.id} className="p-6 sm:p-8 hover:bg-white/2 transition-colors duration-300 group">
+                      <div className="flex flex-col sm:flex-row items-start gap-5">
+                        <div className="mt-1 shrink-0">
+                          <SeverityBadge severity={issue.severity} />
+                        </div>
                         <div className="flex-1 min-w-0">
-                          <h3 className="text-white font-medium">
-                            {issue.title}
-                          </h3>
+                          <div className="flex items-center gap-3 mb-2 flex-wrap">
+                            <h3 className="text-slate-200 text-base font-medium leading-tight">
+                              {issue.title}
+                            </h3>
+                            <CategoryBadge category={issue.category} />
+                          </div>
+                          
                           {issue.whyItMatters && (
-                            <p className="text-slate-400 text-sm mt-1">
+                            <p className="text-slate-400 text-sm leading-relaxed max-w-3xl">
                               {issue.whyItMatters}
                             </p>
                           )}
-                          <div className="flex items-center gap-2 mt-2">
-                            <CategoryBadge category={issue.category} />
+                          
+                          <div className="flex items-center gap-4 mt-4 text-xs font-mono text-slate-500 opacity-60 group-hover:opacity-100 transition-opacity">
+                            <span className="bg-white/4 px-2 py-1 rounded">
+                              CODE: {issue.code}
+                            </span>
                             {issue.impact && (
-                              <span className="text-xs text-slate-500">
-                                Impact: {issue.impact}/5
+                              <span>
+                                IMPACT:{' '}
+                                <span className="text-slate-300">{issue.impact}/5</span>
                               </span>
                             )}
                           </div>
