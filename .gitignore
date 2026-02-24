@@ -1,7 +1,5 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
-
-# dependencies
-/node_modules
+# ── Dependencies ──────────────────────────────────────────────────────────────
+node_modules/
 /.pnp
 .pnp.*
 .yarn/*
@@ -10,38 +8,52 @@
 !.yarn/releases
 !.yarn/versions
 
-# testing
-/coverage
-
-# next.js
+# ── Next.js ───────────────────────────────────────────────────────────────────
 /.next/
 /out/
-
-# production
 /build
 
-# misc
-.DS_Store
-*.pem
+# ── Testing ───────────────────────────────────────────────────────────────────
+/coverage
 
-# debug
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-.pnpm-debug.log*
+# ── Environment variables ─────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
 
-# env files (can opt-in for committing if needed)
-.env*
+# ── Prisma ────────────────────────────────────────────────────────────────────
+/src/generated/prisma
 
-# vercel
-.vercel
+# ── Supabase ──────────────────────────────────────────────────────────────────
+supabase/.temp/
 
-# typescript
+# ── Playwright ────────────────────────────────────────────────────────────────
+/test-results/
+/playwright-report/
+/blob-report/
+
+# ── TypeScript ────────────────────────────────────────────────────────────────
 *.tsbuildinfo
 next-env.d.ts
 
-/src/generated/prisma
+# ── Vercel ────────────────────────────────────────────────────────────────────
+.vercel
 
+# ── Debug logs ────────────────────────────────────────────────────────────────
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
 
-#Ignore vscode AI rules
+# ── OS / Editor ───────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.pem
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ── IDE / AI artifacts ────────────────────────────────────────────────────────
+.history/
 .github/instructions/codacy.instructions.md

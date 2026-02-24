@@ -1,36 +1,100 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# SiteSheriff 🛡️
+
+**Drop a URL → get an agency-grade QA report in 90 seconds.**
+
+SiteSheriff crawls up to 25 pages and delivers a prioritized report covering SEO, accessibility, broken links, performance, and content — with client-friendly explanations and a copy-paste email draft.
+
+## Features
+
+- **SEO Audit** — Title, meta description, H1, canonical, robots directives, word count
+- **Accessibility** — axe-core analysis surfacing WCAG violations per page
+- **Broken Links** — Internal + external link validation with HTTP status codes
+- **Performance Snapshot** — Lighthouse scores on key pages
+- **Content Analysis** *(optional)* — LLM-powered clarity, CTA, and consistency checks
+- **Client Email Draft** — Copy-paste summary ready to send
+- **Shareable Reports** — Public read-only link for each scan
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|------------|
+| Framework | Next.js 16 (App Router) |
+| Language | TypeScript |
+| Database | Supabase (PostgreSQL) + Prisma ORM |
+| Crawler | Playwright + Cheerio |
+| Accessibility | axe-core via `@axe-core/playwright` |
+| Validation | Zod |
+| Styling | Tailwind CSS 4 |
+| Hosting | Vercel |
 
 ## Getting Started
 
-First, run the development server:
+### Prerequisites
+
+- Node.js 20+
+- pnpm 9+
+- A [Supabase](https://supabase.com) project
+
+### Setup
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
+# Clone the repo
+git clone https://github.com/forbiddenlink/site-sheriff.git
+cd site-sheriff
+
+# Install dependencies
+pnpm install
+
+# Copy environment variables
+cp .env.example .env
+# Fill in your Supabase credentials in .env
+
+# Generate Prisma client
+pnpm prisma generate
+
+# Push schema to database
+pnpm prisma db push
+
+# Start dev server
 pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000) to start scanning.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Environment Variables
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+See [`.env.example`](.env.example) for required variables:
 
-## Learn More
+| Variable | Description |
+|----------|-------------|
+| `DATABASE_URL` | Supabase connection string (pooled) |
+| `DIRECT_URL` | Supabase direct connection string |
 
-To learn more about Next.js, take a look at the following resources:
+## Project Structure
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```
+src/
+├── app/
+│   ├── api/scan/        # POST /api/scan — start a scan
+│   │   └── [id]/        # GET  /api/scan/:id — poll scan status
+│   ├── scan/[id]/       # Report page
+│   └── page.tsx         # Landing / URL input
+├── lib/
+│   ├── scanner/         # Crawl + analysis pipeline
+│   │   ├── crawler.ts   # Playwright-based page crawler
+│   │   ├── seo-checker.ts
+│   │   ├── a11y-checker.ts
+│   │   ├── link-checker.ts
+│   │   └── index.ts     # Pipeline orchestrator
+│   ├── db.ts            # Prisma client
+│   ├── types.ts         # Shared types
+│   └── url-utils.ts     # URL normalization
+prisma/
+└── schema.prisma        # Data model
+supabase/
+└── migrations/          # SQL migrations (RLS, etc.)
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## License
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Private — all rights reserved.
