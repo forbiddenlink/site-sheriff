@@ -2,7 +2,7 @@ import { supabaseAdmin } from '../supabase-server';
 import { Crawler, type CrawlResult } from './crawler';
 import { checkLinks, findBrokenLinks, findRedirectChains } from './link-checker';
 import { checkAccessibility, mapImpactToSeverity } from './a11y-checker';
-import { checkSEO, checkDuplicates, checkStructuredData, checkSPARendering, validateOgImages, validateCanonicals, checkAnchorText } from './seo-checker';
+import { checkSEO, checkDuplicates, checkStructuredData, checkSPARendering, validateOgImages, validateCanonicals, validateHreflangBidirectional, checkAnchorText } from './seo-checker';
 import { checkPerformance } from './perf-checker';
 import { checkSecurity, checkSecurityTxt, checkHttpsRedirect } from './security-checker';
 import { checkCompression } from './compression-checker';
@@ -294,6 +294,14 @@ export async function runScan(ctx: ScanContext): Promise<void> {
         allIssues.push(...canonicalIssues);
       } catch {
         console.warn('Canonical URL validation failed');
+      }
+
+      // Validate hreflang bidirectional links (cross-page)
+      try {
+        const hreflangIssues = validateHreflangBidirectional(htmlPages);
+        allIssues.push(...hreflangIssues);
+      } catch {
+        console.warn('Hreflang bidirectional validation failed');
       }
       completedPhases.push('tech-duplicates');
     }

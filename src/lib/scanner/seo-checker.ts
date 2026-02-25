@@ -279,6 +279,158 @@ export function checkSEO(result: CrawlResult): SEOIssue[] {
     });
   }
 
+  // ── Mobile-first indexing checks ─────────────────────────────────────
+  // Check for viewport that disables user scaling (not mobile-friendly)
+  if (result.viewport) {
+    const viewportLower = result.viewport.toLowerCase();
+    const hasUserScalableNo = /user-scalable\s*=\s*(no|0)/.test(viewportLower);
+    const hasMaxScaleOne = /maximum-scale\s*=\s*1(\.0)?(?!\d)/.test(viewportLower);
+    if (hasUserScalableNo || hasMaxScaleOne) {
+      issues.push({
+        code: 'viewport_not_mobile_friendly',
+        severity: 'P2',
+        category: 'SEO',
+        title: 'Viewport disables user scaling',
+        whyItMatters: 'Disabling pinch-to-zoom (user-scalable=no or maximum-scale=1) hurts accessibility and mobile usability. Google considers this a mobile-friendliness issue that can affect rankings.',
+        howToFix: 'Remove user-scalable=no and maximum-scale=1 from your viewport meta tag. Allow users to zoom for accessibility.',
+        evidence: { url: result.url, actual: result.viewport, expected: 'Viewport without zoom restrictions' },
+        impact: 3,
+        effort: 1,
+      });
+    }
+  }
+
+  // Check for small font sizes in inline styles (basic heuristic)
+  if (result.html) {
+    const smallFontPattern = /style\s*=\s*["'][^"']*font-size\s*:\s*(\d+(?:\.\d+)?)(px|pt)[^"']*["']/gi;
+    const smallFontMatches = [...result.html.matchAll(smallFontPattern)];
+    const tooSmallFonts: string[] = [];
+
+    for (const match of smallFontMatches) {
+      const size = parseFloat(match[1]);
+      const unit = match[2].toLowerCase();
+      // 12px is Google's minimum recommended font size for mobile
+      // pt is roughly 1.33x px, so 9pt ≈ 12px
+      const minSize = unit === 'pt' ? 9 : 12;
+      if (size < minSize) {
+        tooSmallFonts.push(`${size}${unit}`);
+      }
+    }
+
+    if (tooSmallFonts.length > 0) {
+      issues.push({
+        code: 'text_too_small_mobile',
+        severity: 'P2',
+        category: 'SEO',
+        title: 'Text may be too small to read on mobile',
+        whyItMatters: 'Google recommends a minimum font size of 12px for mobile readability. Text smaller than this fails mobile-friendliness tests and hurts user experience.',
+        howToFix: 'Increase font sizes to at least 12px (or 16px for body text). Use relative units like rem or em for better scaling.',
+        evidence: {
+          url: result.url,
+          actual: `Found ${tooSmallFonts.length} instance(s) with small fonts: ${tooSmallFonts.slice(0, 5).join(', ')}${tooSmallFonts.length > 5 ? '...' : ''}`,
+          expected: 'Minimum 12px font size'
+        },
+        impact: 3,
+        effort: 2,
+      });
+    }
+
+    // Check for small tap targets (buttons/links with small dimensions in inline styles)
+    const tapTargetPattern = /<(button|a|input|select)\b[^>]*style\s*=\s*["'][^"']*(?:width|height)\s*:\s*(\d+(?:\.\d+)?)(px|em|rem)[^"']*["'][^>]*>/gi;
+    const smallTapTargets: Array<{ element: string; size: string }> = [];
+
+    let tapMatch;
+    while ((tapMatch = tapTargetPattern.exec(result.html)) !== null) {
+      const element = tapMatch[1];
+      const fullTag = tapMatch[0];
+
+      // Extract width and height from the style attribute
+      const widthMatch = /width\s*:\s*(\d+(?:\.\d+)?)(px|em|rem)/i.exec(fullTag);
+      const heightMatch = /height\s*:\s*(\d+(?:\.\d+)?)(px|em|rem)/i.exec(fullTag);
+
+      for (const sizeMatch of [widthMatch, heightMatch]) {
+        if (sizeMatch) {
+          const size = parseFloat(sizeMatch[1]);
+          const unit = sizeMatch[2].toLowerCase();
+          // 48px is Google's recommended minimum tap target size
+          // Convert em/rem assuming 16px base (48px = 3em/rem)
+          const minSize = unit === 'px' ? 48 : 3;
+          if (size < minSize) {
+            smallTapTargets.push({ element, size: `${size}${unit}` });
+            break; // Only report once per element
+          }
+        }
+      }
+    }
+
+    if (smallTapTargets.length > 0) {
+      const examples = smallTapTargets.slice(0, 3).map(t => `<${t.element}> (${t.size})`).join(', ');
+      issues.push({
+        code: 'tap_targets_too_close',
+        severity: 'P3',
+        category: 'SEO',
+        title: 'Tap targets may be too small for mobile',
+        whyItMatters: 'Google recommends tap targets (buttons, links) be at least 48x48px for comfortable tapping on mobile devices. Small targets lead to accidental taps and frustration.',
+        howToFix: 'Increase the size of clickable elements to at least 48x48px. Add padding if you cannot increase the visible size.',
+        evidence: {
+          url: result.url,
+          actual: `Found ${smallTapTargets.length} potentially small tap target(s): ${examples}${smallTapTargets.length > 3 ? '...' : ''}`,
+          expected: 'Minimum 48x48px tap targets'
+        },
+        impact: 2,
+        effort: 2,
+      });
+    }
+
+    // Check for intrusive interstitials/modals that may block content on mobile
+    const interstitialPatterns = [
+      // Common modal/popup class names
+      /class\s*=\s*["'][^"']*\b(modal|popup|overlay|lightbox|dialog|interstitial)\b[^"']*["']/gi,
+      // Common modal ID patterns
+      /id\s*=\s*["'][^"']*\b(modal|popup|overlay|lightbox|dialog|interstitial)\b[^"']*["']/gi,
+      // Fixed/absolute positioning with high z-index (potential overlay)
+      /style\s*=\s*["'][^"']*position\s*:\s*(fixed|absolute)[^"']*z-index\s*:\s*(\d{4,})[^"']*["']/gi,
+    ];
+
+    const interstitialIndicators: string[] = [];
+
+    for (const pattern of interstitialPatterns) {
+      const matches = result.html.match(pattern);
+      if (matches && matches.length > 0) {
+        // Extract the class/id name for evidence
+        for (const match of matches.slice(0, 2)) {
+          const nameMatch = /\b(modal|popup|overlay|lightbox|dialog|interstitial)\b/i.exec(match);
+          if (nameMatch) {
+            interstitialIndicators.push(nameMatch[1].toLowerCase());
+          } else if (/z-index/.test(match)) {
+            interstitialIndicators.push('high z-index overlay');
+          }
+        }
+      }
+    }
+
+    // Deduplicate indicators
+    const uniqueIndicators = [...new Set(interstitialIndicators)];
+
+    if (uniqueIndicators.length > 0) {
+      issues.push({
+        code: 'mobile_usability_interstitial',
+        severity: 'P2',
+        category: 'SEO',
+        title: 'Page may have intrusive interstitials',
+        whyItMatters: 'Google penalizes pages with intrusive interstitials (popups, modals) that block content on mobile. These hurt user experience and can negatively impact rankings.',
+        howToFix: 'Ensure popups/modals don\'t cover main content on mobile page load. Use banners instead of full-screen overlays. Delay interstitials until after user interaction.',
+        evidence: {
+          url: result.url,
+          snippet: `Detected patterns: ${uniqueIndicators.join(', ')}`,
+          actual: `Found ${uniqueIndicators.length} potential interstitial pattern(s)`
+        },
+        impact: 3,
+        effort: 2,
+      });
+    }
+  }
+
   // ── Language attribute check ──────────────────────────────────────────
   if (!result.lang) {
     issues.push({
@@ -685,6 +837,35 @@ export function checkDuplicates(results: CrawlResult[]): SEOIssue[] {
 }
 
 /**
+ * JS framework detection patterns for script src and inline scripts
+ */
+const JS_FRAMEWORK_PATTERNS: Record<string, RegExp[]> = {
+  react: [
+    /react(?:\.min)?\.js/i,
+    /react-dom(?:\.min)?\.js/i,
+    /\/_next\//,
+    /\/next\//,
+    /__NEXT_DATA__/,
+  ],
+  vue: [
+    /vue(?:\.min)?\.js/i,
+    /vue\.runtime(?:\.min)?\.js/i,
+    /\/_nuxt\//,
+    /__NUXT__/,
+  ],
+  angular: [
+    /angular(?:\.min)?\.js/i,
+    /zone\.js/i,
+    /ng-version/i,
+  ],
+  svelte: [
+    /svelte(?:\.min)?\.js/i,
+    /\/__svelte\//,
+    /svelte-kit/i,
+  ],
+};
+
+/**
  * Detect if a page appears to be a client-side rendered SPA,
  * which may cause incomplete audit results.
  */
@@ -759,6 +940,158 @@ export function checkSPARendering(result: CrawlResult): Array<{
       },
       impact: 4,
       effort: 4,
+    });
+  }
+
+  // ── NEW CHECK: JS Framework Detection (P3/Info) ───────────────────────
+  const detectedFrameworks: string[] = [];
+  for (const [framework, patterns] of Object.entries(JS_FRAMEWORK_PATTERNS)) {
+    for (const pattern of patterns) {
+      if (pattern.test(html)) {
+        detectedFrameworks.push(framework);
+        break; // Only count each framework once
+      }
+    }
+  }
+
+  if (detectedFrameworks.length > 0) {
+    issues.push({
+      code: 'js_framework_detected',
+      severity: 'P3' as const,
+      category: 'SEO' as const,
+      title: `JavaScript framework detected: ${detectedFrameworks.join(', ')}`,
+      whyItMatters:
+        'JavaScript frameworks can affect how search engines crawl and index your content. While modern search engines can execute JavaScript, server-side rendering is still recommended for optimal SEO.',
+      howToFix:
+        'Ensure your framework uses SSR/SSG for critical content. For React, consider Next.js; for Vue, consider Nuxt; for Svelte, consider SvelteKit. Verify content is visible in View Source, not just after JS execution.',
+      evidence: {
+        url: result.url,
+        frameworks: detectedFrameworks,
+      },
+      impact: 2,
+      effort: 3,
+    });
+  }
+
+  // ── NEW CHECK: Lazy Load Above Fold (P2) ──────────────────────────────
+  // Check if the first 3 img tags use loading="lazy" (above-fold images shouldn't)
+  const imgTagMatches = [...html.matchAll(/<img\s[^>]*>/gi)];
+  const aboveFoldImgCount = Math.min(3, imgTagMatches.length);
+  const lazyAboveFoldImages: string[] = [];
+
+  for (let i = 0; i < aboveFoldImgCount; i++) {
+    const imgTag = imgTagMatches[i][0];
+    if (/\bloading\s*=\s*["']lazy["']/i.test(imgTag)) {
+      // Extract src for evidence
+      const srcMatch = imgTag.match(/\bsrc\s*=\s*["']([^"']+)["']/i);
+      const src = srcMatch ? srcMatch[1] : `Image ${i + 1}`;
+      lazyAboveFoldImages.push(src);
+    }
+  }
+
+  if (lazyAboveFoldImages.length > 0) {
+    issues.push({
+      code: 'lazy_load_above_fold',
+      severity: 'P2' as const,
+      category: 'PERFORMANCE' as const,
+      title: 'Above-the-fold images use lazy loading',
+      whyItMatters:
+        'Images that appear above the fold (visible without scrolling) should load immediately. Using loading="lazy" on these images delays their display, hurting Largest Contentful Paint (LCP) and user experience.',
+      howToFix:
+        'Remove loading="lazy" from the first few images on your page (typically hero images, logos, or main content images). Reserve lazy loading for images below the fold.',
+      evidence: {
+        url: result.url,
+        lazyImages: lazyAboveFoldImages,
+        count: lazyAboveFoldImages.length,
+      },
+      impact: 4,
+      effort: 1,
+    });
+  }
+
+  // ── NEW CHECK: Noscript Fallback Missing (P2) ─────────────────────────
+  // If page uses JS framework, check for meaningful <noscript> content
+  if (detectedFrameworks.length > 0 || isLikelySPA || hasMinimalBody) {
+    const noscriptMatches = [...html.matchAll(/<noscript[^>]*>([\s\S]*?)<\/noscript>/gi)];
+    let hasMeaningfulNoscript = false;
+
+    for (const match of noscriptMatches) {
+      const noscriptContent = match[1]
+        .replaceAll(/<[^>]+>/g, '')
+        .trim();
+      // Consider meaningful if it has more than just "enable JavaScript" message
+      if (noscriptContent.length > 100 && !/enable\s*javascript/i.test(noscriptContent)) {
+        hasMeaningfulNoscript = true;
+        break;
+      }
+    }
+
+    if (!hasMeaningfulNoscript) {
+      issues.push({
+        code: 'noscript_fallback_missing',
+        severity: 'P2' as const,
+        category: 'SEO' as const,
+        title: 'Missing meaningful <noscript> fallback',
+        whyItMatters:
+          'Pages relying on JavaScript should provide <noscript> content for search engines that don\'t execute JS, users with JS disabled, and as a fallback for failed script loads. Without it, these users see a blank or broken page.',
+        howToFix:
+          'Add a <noscript> tag with meaningful content that describes the page or provides essential information. At minimum, include a message explaining the page requires JavaScript and provide basic navigation.',
+        evidence: {
+          url: result.url,
+          hasNoscript: noscriptMatches.length > 0,
+          noscriptCount: noscriptMatches.length,
+          frameworks: detectedFrameworks,
+        },
+        impact: 3,
+        effort: 2,
+      });
+    }
+  }
+
+  // ── NEW CHECK: Client-Side Only Links (P3) ────────────────────────────
+  // Check for links that are JavaScript-only (href="#" or href="javascript:")
+  const linkMatches = [...html.matchAll(/<a\s[^>]*href\s*=\s*["']([^"']*)["'][^>]*>/gi)];
+  const jsOnlyLinks: Array<{ href: string; snippet: string }> = [];
+
+  for (const match of linkMatches) {
+    const href = match[1].trim();
+    const fullTag = match[0];
+
+    // Check for JavaScript-only link patterns
+    if (
+      href === '#' ||
+      href === '' ||
+      href.toLowerCase().startsWith('javascript:') ||
+      href === '#!' ||
+      href === '#/' // Hash routing pattern
+    ) {
+      // Skip if it has an aria-label or meaningful onclick that suggests it's intentional
+      // But still flag it for SEO purposes
+      const snippet = fullTag.length > 100 ? fullTag.slice(0, 100) + '...' : fullTag;
+      jsOnlyLinks.push({ href, snippet });
+    }
+  }
+
+  if (jsOnlyLinks.length > 0) {
+    // Limit evidence to first 5 examples
+    const examples = jsOnlyLinks.slice(0, 5);
+    issues.push({
+      code: 'client_side_links',
+      severity: 'P3' as const,
+      category: 'SEO' as const,
+      title: `Found ${jsOnlyLinks.length} JavaScript-only link(s)`,
+      whyItMatters:
+        'Links with href="#" or href="javascript:" are not crawlable by search engines. These links won\'t pass PageRank or help search engines discover your content structure. They also break functionality when JavaScript fails.',
+      howToFix:
+        'Replace JavaScript-only links with real URLs. Use proper <a href="/real-path"> for navigation. If the link triggers a modal or action, consider using a <button> element instead, or provide a fallback URL.',
+      evidence: {
+        url: result.url,
+        count: jsOnlyLinks.length,
+        examples: examples.map(l => l.href),
+        snippets: examples.map(l => l.snippet),
+      },
+      impact: 2,
+      effort: 2,
     });
   }
 
@@ -897,6 +1230,160 @@ export async function validateOgImages(results: CrawlResult[]): Promise<Array<{
     for (const r of batchResults) {
       if (r.status === 'rejected') {
         console.warn('OG image validation batch error:', r.reason);
+      }
+    }
+  }
+
+  return issues;
+}
+
+/**
+ * Extract hreflang tags from HTML content.
+ * Returns array of { lang, href } for all valid hreflang alternate links.
+ */
+function extractHreflangTags(html: string): Array<{ lang: string; href: string }> {
+  const hreflangMatches = [...html.matchAll(/<link[^>]*\bhreflang\s*=\s*["']([^"']+)["'][^>]*>/gi)];
+  const hreflangTags: Array<{ lang: string; href: string }> = [];
+  for (const match of hreflangMatches) {
+    const tag = match[0];
+    if (!/\brel\s*=\s*["']alternate["']/i.test(tag)) continue;
+    const lang = match[1];
+    const hrefMatch = /\bhref\s*=\s*["']([^"']+)["']/i.exec(tag);
+    const href = hrefMatch?.[1] ?? '';
+    if (href) {
+      hreflangTags.push({ lang, href });
+    }
+  }
+  return hreflangTags;
+}
+
+/**
+ * Normalize URL for hreflang comparison (remove trailing slash, lowercase).
+ */
+function normalizeHreflangUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    return (parsed.origin + parsed.pathname).replace(/\/+$/, '').toLowerCase();
+  } catch {
+    return url.replace(/\/+$/, '').toLowerCase();
+  }
+}
+
+/**
+ * Validate hreflang bidirectional links across all crawled pages.
+ * For each page with hreflang tags pointing to other language versions,
+ * verify that those target pages link back.
+ */
+export function validateHreflangBidirectional(results: CrawlResult[]): SEOIssue[] {
+  const issues: SEOIssue[] = [];
+
+  // Build a map of normalized URL -> page data (URL, hreflang tags)
+  const pageHreflangMap = new Map<string, { url: string; hreflangTags: Array<{ lang: string; href: string }> }>();
+
+  for (const result of results) {
+    if (result.error || !result.html) continue;
+
+    const hreflangTags = extractHreflangTags(result.html);
+    if (hreflangTags.length === 0) continue;
+
+    const normalizedUrl = normalizeHreflangUrl(result.url);
+    pageHreflangMap.set(normalizedUrl, {
+      url: result.url,
+      hreflangTags,
+    });
+  }
+
+  // For each page with hreflang tags, check bidirectional linking
+  for (const [normalizedPageUrl, pageData] of pageHreflangMap) {
+    const { url: pageUrl, hreflangTags } = pageData;
+
+    // Check for self-referencing hreflang (page should include hreflang pointing to itself)
+    const hasSelfReference = hreflangTags.some(tag => {
+      const normalizedHref = normalizeHreflangUrl(tag.href);
+      return normalizedHref === normalizedPageUrl;
+    });
+
+    if (!hasSelfReference) {
+      issues.push({
+        code: 'hreflang_missing_self',
+        severity: 'P2',
+        category: 'SEO',
+        title: 'Page missing self-referencing hreflang',
+        whyItMatters: 'Each page with hreflang tags should include a self-referencing entry pointing to itself. Without this, search engines may not correctly identify the page\'s language/region.',
+        howToFix: 'Add a <link rel="alternate" hreflang="xx" href="..."> tag where href points to this page\'s own URL.',
+        evidence: {
+          url: pageUrl,
+          snippet: `Found ${hreflangTags.length} hreflang tag(s) but none reference this page`,
+        },
+        impact: 3,
+        effort: 1,
+      });
+    }
+
+    // Check each hreflang link for bidirectional reference
+    for (const tag of hreflangTags) {
+      const normalizedTargetUrl = normalizeHreflangUrl(tag.href);
+
+      // Skip self-references
+      if (normalizedTargetUrl === normalizedPageUrl) continue;
+
+      // Check if the target page was crawled and has hreflang tags
+      const targetPageData = pageHreflangMap.get(normalizedTargetUrl);
+
+      if (!targetPageData) {
+        // Target page wasn't crawled or doesn't have hreflang tags
+        // This could be because the page is external or wasn't reached
+        // We'll only flag this if the target is in the same domain
+        try {
+          const pageHostname = new URL(pageUrl).hostname;
+          const targetHostname = new URL(tag.href).hostname;
+
+          if (pageHostname === targetHostname) {
+            // Same domain but target page not found with hreflang
+            issues.push({
+              code: 'hreflang_not_bidirectional',
+              severity: 'P2',
+              category: 'SEO',
+              title: 'Hreflang link is not bidirectional',
+              whyItMatters: 'Hreflang annotations must be reciprocal. If page A links to page B with hreflang, page B must link back to page A. Non-reciprocal hreflang may be ignored by search engines.',
+              howToFix: `Add a hreflang tag on the target page (${tag.href}) pointing back to this page (${pageUrl}).`,
+              evidence: {
+                url: pageUrl,
+                actual: `hreflang="${tag.lang}" points to ${tag.href}`,
+                snippet: 'Target page does not have hreflang tags or was not crawled',
+              },
+              impact: 3,
+              effort: 2,
+            });
+          }
+        } catch {
+          // Invalid URL, skip
+        }
+        continue;
+      }
+
+      // Target page was crawled - check if it links back to this page
+      const targetLinksBack = targetPageData.hreflangTags.some(targetTag => {
+        const normalizedBackRef = normalizeHreflangUrl(targetTag.href);
+        return normalizedBackRef === normalizedPageUrl;
+      });
+
+      if (!targetLinksBack) {
+        issues.push({
+          code: 'hreflang_not_bidirectional',
+          severity: 'P2',
+          category: 'SEO',
+          title: 'Hreflang link is not bidirectional',
+          whyItMatters: 'Hreflang annotations must be reciprocal. If page A links to page B with hreflang, page B must link back to page A. Non-reciprocal hreflang may be ignored by search engines.',
+          howToFix: `Add a hreflang tag on the target page (${tag.href}) pointing back to this page (${pageUrl}).`,
+          evidence: {
+            url: pageUrl,
+            actual: `hreflang="${tag.lang}" points to ${tag.href}`,
+            snippet: 'Target page has hreflang tags but none point back to this page',
+          },
+          impact: 3,
+          effort: 2,
+        });
       }
     }
   }
