@@ -14,7 +14,7 @@ import { checkImageOptimization } from './image-checker';
 import { checkResourceOptimization } from './resource-checker';
 import { analyzeInternalLinking } from './linking-analyzer';
 import { checkEEAT } from './eeat-checker';
-import { checkAIReadiness, checkLlmsTxt } from './ai-readiness-checker';
+import { checkAIReadiness, checkLlmsTxt, checkAICrawlerAccess } from './ai-readiness-checker';
 import { checkContentSimilarity } from './content-similarity-checker';
 import type { ScanSettings, ScanProgress, ScanSummary, LinkData } from '../types';
 
@@ -244,6 +244,14 @@ export async function runScan(ctx: ScanContext): Promise<void> {
         allIssues.push(...llmsTxtIssues);
       } catch {
         console.warn('llms.txt check failed');
+      }
+
+      // Site-level: check if AI crawlers are blocked in robots.txt
+      try {
+        const aiCrawlerIssues = await checkAICrawlerAccess(normalizedUrl);
+        allIssues.push(...aiCrawlerIssues);
+      } catch {
+        console.warn('AI crawler access check failed');
       }
 
       completedPhases.push('ai-readiness');

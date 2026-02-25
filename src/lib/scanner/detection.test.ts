@@ -3,7 +3,7 @@ import { checkEEAT } from './eeat-checker';
 import { checkSEO } from './seo-checker';
 import { checkImageOptimization } from './image-checker';
 import { checkResourceOptimization } from './resource-checker';
-import { checkLlmsTxt, checkAIReadiness } from './ai-readiness-checker';
+import { checkLlmsTxt, checkAIReadiness, checkAICrawlerAccess } from './ai-readiness-checker';
 import { parseDisallowPatterns, isDisallowedByRobots } from './robots-checker';
 import { checkContentSimilarity } from './content-similarity-checker';
 import type { CrawlResult } from './crawler';
@@ -513,6 +513,93 @@ describe('llms.txt detection', () => {
     global.fetch = vi.fn().mockRejectedValue(new Error('Network error'));
 
     const issues = await checkLlmsTxt('https://example.com');
+
+    expect(issues).toHaveLength(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AI Crawler Access Tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('AI crawler access detection', () => {
+  const originalFetch = global.fetch;
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  it('should flag when GPTBot is blocked', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => `
+User-agent: GPTBot
+Disallow: /
+
+User-agent: *
+Allow: /
+      `,
+    });
+
+    const issues = await checkAICrawlerAccess('https://example.com');
+
+    expect(issues).toHaveLength(1);
+    expect(issues[0].code).toBe('ai_crawlers_blocked');
+    expect(issues[0].evidence.actual).toContain('GPTBot');
+  });
+
+  it('should flag multiple blocked AI crawlers with higher severity', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => `
+User-agent: GPTBot
+Disallow: /
+
+User-agent: ClaudeBot
+Disallow: /
+
+User-agent: PerplexityBot
+Disallow: /
+
+User-agent: *
+Allow: /
+      `,
+    });
+
+    const issues = await checkAICrawlerAccess('https://example.com');
+
+    expect(issues).toHaveLength(1);
+    expect(issues[0].severity).toBe('P2'); // Higher severity for 3+ bots
+    expect(issues[0].evidence.actual).toContain('GPTBot');
+    expect(issues[0].evidence.actual).toContain('ClaudeBot');
+    expect(issues[0].evidence.actual).toContain('PerplexityBot');
+  });
+
+  it('should NOT flag when no AI bots are specifically blocked', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => `
+User-agent: *
+Allow: /
+Disallow: /admin/
+      `,
+    });
+
+    const issues = await checkAICrawlerAccess('https://example.com');
+
+    expect(issues).toHaveLength(0);
+  });
+
+  it('should NOT flag when robots.txt is missing', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 404,
+    });
+
+    const issues = await checkAICrawlerAccess('https://example.com');
 
     expect(issues).toHaveLength(0);
   });
