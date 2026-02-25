@@ -124,7 +124,7 @@ const steps = [
   },
   {
     num: '02',
-    title: 'We scan everything',
+    title: 'Scans everything',
     desc: '35+ checks across 6 categories, page by page.',
     icon: (
       <svg className="w-6 h-6 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -406,7 +406,7 @@ export default function Home() {
       {/* ── Features Grid (6 categories – 3 × 2) ───────────────────────── */}
       <section className="w-full max-w-5xl z-10 relative mb-24">
         <h2 className="text-center text-sm font-mono uppercase tracking-widest text-slate-500 mb-10">
-          What we check
+          What it checks
         </h2>
 
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-5">
@@ -500,7 +500,7 @@ export default function Home() {
           </span>
           <span className="text-slate-700">·</span>
           <a
-            href="https://github.com/lizstein/site-sheriff"
+            href="https://github.com/forbiddenlink/site-sheriff"
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-emerald-400 transition-colors font-mono"
