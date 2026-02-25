@@ -474,22 +474,40 @@ function dedupeIssues<T extends { code: string; evidence: { url?: string } }>(is
   });
 }
 
-// Severity-weighted penalty points per issue
-const SEVERITY_PENALTY: Record<string, number> = { P0: 25, P1: 15, P2: 8, P3: 3 };
+// Severity-weighted penalty points per unique issue type
+const SEVERITY_PENALTY: Record<string, number> = { P0: 15, P1: 8, P2: 4, P3: 2 };
 
 /**
- * Compute the score for a single category based on severity-weighted penalties.
- * Returns 0-100 where 100 = no issues.
+ * Compute the score for a single category.
+ * Penalties are applied per UNIQUE issue code (not per page instance) so that
+ * the same template-level problem found on many pages doesn't crush the score.
+ * Additional occurrences of the same issue add a small incremental penalty
+ * (+2 each, capped at +8) to still reflect how widespread the problem is.
  */
 function computeCategoryScore(
-  issues: Array<{ severity: string; category: string }>,
+  issues: Array<{ severity: string; category: string; code: string }>,
   category: string,
 ): number {
   const catIssues = issues.filter((i) => i.category === category);
-  let penalty = 0;
+
+  // Group by issue code to avoid penalising the same problem on every page
+  const grouped = new Map<string, { severity: string; count: number }>();
   for (const issue of catIssues) {
-    penalty += SEVERITY_PENALTY[issue.severity] ?? 5;
+    const existing = grouped.get(issue.code);
+    if (existing) {
+      existing.count++;
+    } else {
+      grouped.set(issue.code, { severity: issue.severity, count: 1 });
+    }
   }
+
+  let penalty = 0;
+  for (const { severity, count } of grouped.values()) {
+    const base = SEVERITY_PENALTY[severity] ?? 4;
+    // First occurrence = base penalty, each extra instance = +2, capped at +8
+    penalty += base + Math.min((count - 1) * 2, 8);
+  }
+
   return Math.max(0, 100 - penalty);
 }
 
