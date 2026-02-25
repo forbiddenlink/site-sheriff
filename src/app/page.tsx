@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, type FormEvent } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { timeAgo } from '@/lib/utils';
@@ -201,7 +201,7 @@ export default function Home() {
       .catch(() => setScansLoaded(true));
   }, []);
 
-  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError(null);
     setIsLoading(true);
@@ -370,11 +370,11 @@ export default function Home() {
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                   {/* Screenshot Mode */}
-                  <div>
-                    <span id="screenshotModeLabel" className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">
+                  <fieldset>
+                    <legend className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">
                       Screenshots
-                    </span>
-                    <div className="flex gap-2" role="group" aria-labelledby="screenshotModeLabel">
+                    </legend>
+                    <div className="flex gap-2">
                       {(['none', 'above-fold', 'full-page'] as const).map((mode) => (
                         <button
                           key={mode}
@@ -390,7 +390,7 @@ export default function Home() {
                         </button>
                       ))}
                     </div>
-                  </div>
+                  </fieldset>
 
                   {/* Performance Check Toggle */}
                   <div>
@@ -517,6 +517,15 @@ export default function Home() {
                 </div>
               </a>
             ))}
+          </div>
+
+          <div className="mt-4 text-center">
+            <a
+              href="/scans"
+              className="text-xs font-mono uppercase tracking-widest text-slate-500 hover:text-emerald-400 transition-colors"
+            >
+              View all scans →
+            </a>
           </div>
         </section>
       )}

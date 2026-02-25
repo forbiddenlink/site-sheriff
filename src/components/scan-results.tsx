@@ -937,7 +937,10 @@ export function ScanResultsView({
             <div className="mb-6 space-y-3 print:hidden">
               {/* Search input */}
               <div className="relative">
+                <label htmlFor="search-issues" className="sr-only">Search issues</label>
                 <input
+                  id="search-issues"
+                  name="search-issues"
                   type="text"
                   placeholder="Search issues..."
                   value={searchQuery}
