@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import { ScanResultsView, type ScanData } from '@/components/scan-results';
 import { CrawlMap } from './crawl-map';
@@ -10,6 +10,7 @@ export default function ScanPage() {
   const id = params?.id as string;
   const [data, setData] = useState<ScanData | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -25,7 +26,7 @@ export default function ScanPage() {
 
         // Schedule next poll if still in progress
         if (json.status === 'QUEUED' || json.status === 'RUNNING') {
-          setTimeout(() => { if (!cancelled) fetchData(); }, 2000);
+          timeoutRef.current = setTimeout(() => { if (!cancelled) fetchData(); }, 2000);
         }
       } catch (err) {
         if (!cancelled) {
@@ -36,7 +37,10 @@ export default function ScanPage() {
 
     fetchData();
 
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    };
   }, [id]);
 
   return (

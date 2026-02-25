@@ -1180,9 +1180,11 @@ export function ScanResultsView({
                                 <div className="bg-white/2 border border-white/6 rounded-xl p-4 font-mono text-xs text-slate-300 space-y-1.5 overflow-x-auto">
                                   {Object.entries(issue.evidence).map(([key, value]) => {
                                     if (value === null || value === undefined) return null;
-                                    const isUrl = typeof value === 'string' && value.startsWith('http');
+                                    // Only allow http/https URLs to prevent XSS via javascript: or data: protocols
+                                    const isSafeUrl = (v: unknown): boolean => typeof v === 'string' && /^https?:\/\//i.test(v);
+                                    const isUrl = isSafeUrl(value);
                                     // Render arrays of URLs as individual clickable links
-                                    if (Array.isArray(value) && value.every((v: unknown) => typeof v === 'string' && (v as string).startsWith('http'))) {
+                                    if (Array.isArray(value) && value.every(isSafeUrl)) {
                                       return (
                                         <div key={key}>
                                           <span className="text-slate-500 shrink-0">{key}:</span>
