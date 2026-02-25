@@ -299,14 +299,14 @@ export default function Home() {
                       <input
                         type="range"
                         min={1}
-                        max={50}
+                        max={200}
                         value={maxPages}
                         onChange={(e) => setMaxPages(Number(e.target.value))}
                         className="flex-1 h-1.5 rounded-full appearance-none bg-white/6 accent-emerald-500 cursor-pointer"
                       />
                       <span className="text-sm font-mono text-slate-300 w-8 text-right">{maxPages}</span>
                     </div>
-                    <p className="text-[10px] text-slate-600 mt-1">Number of pages to crawl (1–50)</p>
+                    <p className="text-[10px] text-slate-600 mt-1">Number of pages to crawl (1–200)</p>
                   </div>
 
                   {/* Max Depth */}

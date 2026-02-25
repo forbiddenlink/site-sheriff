@@ -112,7 +112,7 @@ function checkThinContent(url: string, wordCount: number, isHomepage: boolean): 
       howToFix:
         'Add meaningful, relevant content to the page. If the page is intentionally minimal (e.g. a redirect), consider adding a noindex tag.',
       evidence: { url, wordCount },
-      impact: 8,
+      impact: 5,
       effort: 3,
     }];
   }
@@ -150,7 +150,7 @@ function checkReadability(url: string, plainText: string): ContentIssue[] {
       howToFix:
         'Use shorter sentences, simpler words, and break up long paragraphs. Aim for a reading-ease score above 60.',
       evidence: { url, fleschKincaidScore: Math.round(readingEase) },
-      impact: 6,
+      impact: 4,
       effort: 4,
     }];
   }
@@ -195,7 +195,7 @@ function checkImageAltText(url: string, images: ImageData[]): ContentIssue[] {
       howToFix:
         'Add descriptive alt attributes to all meaningful images. Use empty alt="" only for purely decorative images.',
       evidence,
-      impact: 8,
+      impact: 5,
       effort: 2,
     }];
   }
@@ -332,7 +332,7 @@ function checkKeywordStuffing(url: string, plainText: string): ContentIssue[] {
         totalWords: words.length,
         density: `${(density * 100).toFixed(1)}%`,
       },
-      impact: 6,
+      impact: 4,
       effort: 3,
     }];
   }
