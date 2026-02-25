@@ -58,6 +58,17 @@ export interface ScanSummary {
     confidence: string;
     evidence: string;
   }>;
+  socialPreview?: {
+    ogTitle: string | null;
+    ogDescription: string | null;
+    ogImage: string | null;
+    ogSiteName: string | null;
+    twitterCard: string | null;
+    twitterTitle: string | null;
+    twitterDescription: string | null;
+    twitterImage: string | null;
+    favicon: string | null;
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

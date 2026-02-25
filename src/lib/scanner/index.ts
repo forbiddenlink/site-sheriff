@@ -9,6 +9,7 @@ import { checkCompression } from './compression-checker';
 import { checkRobotsSitemap } from './robots-checker';
 import { detectTechnologies } from './tech-detector';
 import { generateEmailDraft } from './email-draft';
+import { checkContentQuality } from './content-checker';
 import type { ScanSettings, ScanProgress, ScanSummary, LinkData } from '../types';
 
 export { Crawler } from './crawler';
@@ -16,6 +17,7 @@ export { checkLinks } from './link-checker';
 export { checkAccessibility } from './a11y-checker';
 export { checkSEO, checkStructuredData } from './seo-checker';
 export { checkCompression } from './compression-checker';
+export { checkContentQuality } from './content-checker';
 
 /**
  * Map axe impact level to a numeric impact score (1-5).
@@ -136,6 +138,16 @@ export async function runScan(ctx: ScanContext): Promise<void> {
     if (crawlResults.length > 0 && !crawlResults[0].error) {
       const spaIssues = checkSPARendering(crawlResults[0]);
       allIssues.push(...spaIssues);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Phase 2a-content: Content quality checks
+    // ─────────────────────────────────────────────────────────────────────────
+    for (const result of crawlResults) {
+      if (!result.error) {
+        const contentIssues = checkContentQuality(result);
+        allIssues.push(...contentIssues);
+      }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -739,6 +751,20 @@ function computeSummary(
     })
     .slice(0, 10);
 
+  // Extract social preview data from homepage
+  const homepage = crawlResults[0];
+  const socialPreview = homepage ? {
+    ogTitle: homepage.ogTags['og:title'] ?? null,
+    ogDescription: homepage.ogTags['og:description'] ?? null,
+    ogImage: homepage.ogTags['og:image'] ?? null,
+    ogSiteName: homepage.ogTags['og:site_name'] ?? null,
+    twitterCard: homepage.ogTags['twitter:card'] ?? null,
+    twitterTitle: homepage.ogTags['twitter:title'] ?? null,
+    twitterDescription: homepage.ogTags['twitter:description'] ?? null,
+    twitterImage: homepage.ogTags['twitter:image'] ?? null,
+    favicon: null as string | null,
+  } : undefined;
+
   return {
     overallScore,
     categoryScores,
@@ -747,5 +773,6 @@ function computeSummary(
     pagesCrawled: crawlResults.length,
     scanDurationMs,
     technologies,
+    socialPreview,
   };
 }

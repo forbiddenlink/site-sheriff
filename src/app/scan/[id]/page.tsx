@@ -33,6 +33,17 @@ interface ScanData {
       confidence: string;
       evidence: string;
     }>;
+    socialPreview?: {
+      ogTitle: string | null;
+      ogDescription: string | null;
+      ogImage: string | null;
+      ogSiteName: string | null;
+      twitterCard: string | null;
+      twitterTitle: string | null;
+      twitterDescription: string | null;
+      twitterImage: string | null;
+      favicon: string | null;
+    };
   } | null;
   issues: Array<{
     id: string;
@@ -559,6 +570,99 @@ export default function ScanPage() {
                 <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-1">Quick Wins</div>
               </div>
             </div>
+
+            {/* Social Preview Cards */}
+            {data.summary.socialPreview && (data.summary.socialPreview.ogTitle || data.summary.socialPreview.ogDescription || data.summary.socialPreview.ogImage) && (
+              <div className="bg-white/2 border border-white/6 backdrop-blur-md rounded-3xl p-8 mb-8">
+                <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-6">
+                  Social Share Preview
+                </h2>
+                <p className="text-xs text-slate-500 mb-6">How your page appears when shared on social platforms</p>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  {/* Twitter/X Card */}
+                  <div>
+                    <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3 flex items-center gap-2">
+                      <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+                      Twitter / X
+                    </div>
+                    <div className="rounded-2xl border border-white/8 overflow-hidden bg-white/2">
+                      {data.summary.socialPreview.ogImage && (
+                        <div className="h-40 bg-slate-800 relative overflow-hidden">
+                          <img
+                            src={data.summary.socialPreview.twitterImage || data.summary.socialPreview.ogImage}
+                            alt="Social preview"
+                            className="w-full h-full object-cover"
+                            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                          />
+                        </div>
+                      )}
+                      <div className="p-4">
+                        <div className="text-xs text-slate-500 mb-1 truncate">
+                          {data.normalizedUrl?.replace(/^https?:\/\//, '').replace(/\/$/, '') ?? ''}
+                        </div>
+                        <div className="text-sm font-medium text-slate-200 mb-1 line-clamp-1">
+                          {data.summary.socialPreview.twitterTitle || data.summary.socialPreview.ogTitle || data.inputUrl}
+                        </div>
+                        <div className="text-xs text-slate-400 line-clamp-2">
+                          {data.summary.socialPreview.twitterDescription || data.summary.socialPreview.ogDescription || 'No description set'}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Facebook / LinkedIn Card */}
+                  <div>
+                    <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3 flex items-center gap-2">
+                      <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.04C6.5 2.04 2 6.53 2 12.06C2 17.06 5.66 21.21 10.44 21.96V14.96H7.9V12.06H10.44V9.85C10.44 7.34 11.93 5.96 14.22 5.96C15.31 5.96 16.45 6.15 16.45 6.15V8.62H15.19C13.95 8.62 13.56 9.39 13.56 10.18V12.06H16.34L15.89 14.96H13.56V21.96A10 10 0 0022 12.06C22 6.53 17.5 2.04 12 2.04Z"/></svg>
+                      Facebook / LinkedIn
+                    </div>
+                    <div className="rounded-2xl border border-white/8 overflow-hidden bg-white/2">
+                      {data.summary.socialPreview.ogImage && (
+                        <div className="h-48 bg-slate-800 relative overflow-hidden">
+                          <img
+                            src={data.summary.socialPreview.ogImage}
+                            alt="OG preview"
+                            className="w-full h-full object-cover"
+                            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                          />
+                        </div>
+                      )}
+                      <div className="p-4 border-t border-white/6">
+                        <div className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">
+                          {data.summary.socialPreview.ogSiteName || data.normalizedUrl?.replace(/^https?:\/\//, '').split('/')[0] || ''}
+                        </div>
+                        <div className="text-sm font-semibold text-slate-200 mb-1 line-clamp-2">
+                          {data.summary.socialPreview.ogTitle || data.inputUrl}
+                        </div>
+                        <div className="text-xs text-slate-400 line-clamp-2">
+                          {data.summary.socialPreview.ogDescription || 'No description set'}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Missing tags warning */}
+                {(!data.summary.socialPreview.ogTitle || !data.summary.socialPreview.ogDescription || !data.summary.socialPreview.ogImage) && (
+                  <div className="mt-4 px-4 py-3 rounded-xl bg-amber-500/5 border border-amber-500/10">
+                    <div className="flex items-start gap-2">
+                      <svg className="w-4 h-4 text-amber-400 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                      </svg>
+                      <div className="text-xs text-amber-300/80">
+                        <span className="font-semibold">Missing tags: </span>
+                        {[
+                          !data.summary.socialPreview.ogTitle && 'og:title',
+                          !data.summary.socialPreview.ogDescription && 'og:description',
+                          !data.summary.socialPreview.ogImage && 'og:image',
+                        ].filter(Boolean).join(', ')}
+                        {' — '}These should be added for optimal social sharing appearance.
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Tech Stack */}
             {data.summary.technologies && data.summary.technologies.length > 0 && (

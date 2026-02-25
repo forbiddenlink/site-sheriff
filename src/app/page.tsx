@@ -146,6 +146,11 @@ export default function Home() {
   const [url, setUrl] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showSettings, setShowSettings] = useState(false);
+  const [maxPages, setMaxPages] = useState(25);
+  const [maxDepth, setMaxDepth] = useState(3);
+  const [screenshotMode, setScreenshotMode] = useState<'none' | 'above-fold' | 'full-page'>('above-fold');
+  const [includePerformance, setIncludePerformance] = useState(true);
 
   // Recent scans
   const [recentScans, setRecentScans] = useState<RecentScan[]>([]);
@@ -170,7 +175,10 @@ export default function Home() {
       const res = await fetch('/api/scan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url }),
+        body: JSON.stringify({
+          url,
+          settings: { maxPages, maxDepth, screenshotMode, includePerformance },
+        }),
       });
 
       const data = await res.json();
@@ -259,6 +267,114 @@ export default function Home() {
 
             {error && (
               <p className="mt-4 text-red-400 text-sm">{error}</p>
+            )}
+
+            {/* Advanced Settings Toggle */}
+            <button
+              type="button"
+              onClick={() => setShowSettings(!showSettings)}
+              className="mt-4 flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-300 transition-colors"
+            >
+              <svg
+                className={`w-3.5 h-3.5 transition-transform ${showSettings ? 'rotate-90' : ''}`}
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+              </svg>
+              Scan Settings
+            </button>
+
+            {showSettings && (
+              <div className="mt-3 p-5 rounded-xl bg-white/2 border border-white/6 backdrop-blur-md space-y-5 animate-in fade-in duration-200">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                  {/* Max Pages */}
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">
+                      Max Pages
+                    </label>
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="range"
+                        min={1}
+                        max={50}
+                        value={maxPages}
+                        onChange={(e) => setMaxPages(Number(e.target.value))}
+                        className="flex-1 h-1.5 rounded-full appearance-none bg-white/6 accent-emerald-500 cursor-pointer"
+                      />
+                      <span className="text-sm font-mono text-slate-300 w-8 text-right">{maxPages}</span>
+                    </div>
+                    <p className="text-[10px] text-slate-600 mt-1">Number of pages to crawl (1–50)</p>
+                  </div>
+
+                  {/* Max Depth */}
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">
+                      Crawl Depth
+                    </label>
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="range"
+                        min={1}
+                        max={5}
+                        value={maxDepth}
+                        onChange={(e) => setMaxDepth(Number(e.target.value))}
+                        className="flex-1 h-1.5 rounded-full appearance-none bg-white/6 accent-emerald-500 cursor-pointer"
+                      />
+                      <span className="text-sm font-mono text-slate-300 w-4 text-right">{maxDepth}</span>
+                    </div>
+                    <p className="text-[10px] text-slate-600 mt-1">How many links deep to follow (1–5)</p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                  {/* Screenshot Mode */}
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">
+                      Screenshots
+                    </label>
+                    <div className="flex gap-2">
+                      {(['none', 'above-fold', 'full-page'] as const).map((mode) => (
+                        <button
+                          key={mode}
+                          type="button"
+                          onClick={() => setScreenshotMode(mode)}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                            screenshotMode === mode
+                              ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                              : 'bg-white/2 text-slate-500 border border-white/6 hover:text-slate-300'
+                          }`}
+                        >
+                          {mode === 'none' ? 'Off' : mode === 'above-fold' ? 'Viewport' : 'Full Page'}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Performance Check Toggle */}
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">
+                      Performance Audit
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setIncludePerformance(!includePerformance)}
+                      className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors ${
+                        includePerformance ? 'bg-emerald-500/30' : 'bg-white/6'
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${
+                          includePerformance ? 'translate-x-6' : 'translate-x-1'
+                        }`}
+                      />
+                    </button>
+                    <p className="text-[10px] text-slate-600 mt-1">Lighthouse-style perf metrics</p>
+                  </div>
+                </div>
+              </div>
             )}
           </form>
         </div>
