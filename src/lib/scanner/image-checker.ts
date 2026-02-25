@@ -23,6 +23,7 @@ interface ImageIssue {
     height?: number;
     count?: number;
     totalBytes?: number;
+    webpCount?: number;
   };
   impact: number;
   effort: number;
@@ -251,6 +252,68 @@ function checkImageDimensions($: cheerio.CheerioAPI, url: string): ImageIssue[] 
   return issues;
 }
 
+/** Detect when WebP is used but AVIF is not - recommend AVIF upgrade. */
+function checkAvifAdoption($: cheerio.CheerioAPI, url: string): ImageIssue[] {
+  let webpCount = 0;
+  let avifCount = 0;
+  const webpSamples: string[] = [];
+
+  // Check <source> elements in <picture>
+  $('picture source').each((_i, el) => {
+    const type = $(el).attr('type') ?? '';
+    const srcset = $(el).attr('srcset') ?? '';
+
+    if (/avif/i.test(type) || /\.avif(\?|$)/i.test(srcset)) {
+      avifCount++;
+    } else if (/webp/i.test(type) || /\.webp(\?|$)/i.test(srcset)) {
+      webpCount++;
+      if (webpSamples.length < 3) {
+        webpSamples.push(srcset.split(',')[0]?.trim() ?? srcset);
+      }
+    }
+  });
+
+  // Check standalone <img> elements with .webp src
+  $('img[src]').each((_i, el) => {
+    const src = $(el).attr('src') ?? '';
+    if (/\.avif(\?|$)/i.test(src)) {
+      avifCount++;
+    } else if (/\.webp(\?|$)/i.test(src)) {
+      // Only count if not inside a <picture> that already has sources
+      const inPicture = $(el).closest('picture').length > 0;
+      if (!inPicture) {
+        webpCount++;
+        if (webpSamples.length < 3) {
+          webpSamples.push(src);
+        }
+      }
+    }
+  });
+
+  // Only flag if WebP is used but AVIF is not
+  if (webpCount === 0 || avifCount > 0) return [];
+
+  return [{
+    code: 'avif_not_used',
+    severity: 'P3' as const,
+    category: 'PERFORMANCE' as const,
+    title: 'Images use WebP but not AVIF',
+    whyItMatters:
+      'AVIF offers 20-30% better compression than WebP at similar quality. Adding AVIF sources can further reduce page weight for supported browsers.',
+    howToFix:
+      'Add <source type="image/avif" srcset="image.avif"> before your WebP sources in <picture> elements. Most image CDNs and build tools can auto-generate AVIF.',
+    evidence: {
+      url,
+      actual: `${webpCount} WebP image(s) without AVIF alternative`,
+      expected: 'AVIF sources alongside WebP for maximum compression',
+      snippet: webpSamples.join(', '),
+      webpCount,
+    },
+    impact: 2,
+    effort: 2,
+  }];
+}
+
 /** Flag pages with images but no `<picture>` or `srcset` usage. */
 function checkResponsiveImages($: cheerio.CheerioAPI, url: string): ImageIssue[] {
   const imgCount = $('img').length;
@@ -331,6 +394,7 @@ export function checkImageOptimization(result: CrawlResult): ImageIssue[] {
 
   return [
     ...checkModernFormats($, result.url),
+    ...checkAvifAdoption($, result.url),
     ...checkLazyLoading($, result.url),
     ...checkImageDimensions($, result.url),
     ...checkResponsiveImages($, result.url),

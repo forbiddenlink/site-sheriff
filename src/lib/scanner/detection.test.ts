@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { checkEEAT } from './eeat-checker';
 import { checkSEO } from './seo-checker';
+import { checkImageOptimization } from './image-checker';
+import { checkResourceOptimization } from './resource-checker';
 import type { CrawlResult } from './crawler';
 
 /**
@@ -255,5 +257,198 @@ describe('contact info detection', () => {
 
     const contactIssue = issues.find(i => i.code === 'missing_contact_info');
     expect(contactIssue).toBeDefined();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AVIF Image Format Detection Tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('AVIF image format detection', () => {
+  it('should flag when images use WebP but not AVIF', () => {
+    const html = `
+      <!DOCTYPE html>
+      <html>
+        <head><title>Example</title></head>
+        <body>
+          <picture>
+            <source srcset="/hero.webp" type="image/webp">
+            <img src="/hero.jpg" alt="Hero">
+          </picture>
+          <picture>
+            <source srcset="/product.webp" type="image/webp">
+            <img src="/product.jpg" alt="Product">
+          </picture>
+        </body>
+      </html>
+    `;
+
+    const result = createCrawlResult({ html });
+    const issues = checkImageOptimization(result);
+
+    const avifIssue = issues.find(i => i.code === 'avif_not_used');
+    expect(avifIssue).toBeDefined();
+    expect(avifIssue?.evidence.webpCount).toBe(2);
+  });
+
+  it('should NOT flag when AVIF is already used', () => {
+    const html = `
+      <!DOCTYPE html>
+      <html>
+        <head><title>Example</title></head>
+        <body>
+          <picture>
+            <source srcset="/hero.avif" type="image/avif">
+            <source srcset="/hero.webp" type="image/webp">
+            <img src="/hero.jpg" alt="Hero">
+          </picture>
+        </body>
+      </html>
+    `;
+
+    const result = createCrawlResult({ html });
+    const issues = checkImageOptimization(result);
+
+    const avifIssue = issues.find(i => i.code === 'avif_not_used');
+    expect(avifIssue).toBeUndefined();
+  });
+
+  it('should NOT flag when only legacy formats are used (covered by existing check)', () => {
+    const html = `
+      <!DOCTYPE html>
+      <html>
+        <head><title>Example</title></head>
+        <body>
+          <img src="/hero.jpg" alt="Hero">
+          <img src="/product.png" alt="Product">
+        </body>
+      </html>
+    `;
+
+    const result = createCrawlResult({ html });
+    const issues = checkImageOptimization(result);
+
+    // Should have no_modern_image_format, not avif_not_used
+    const avifIssue = issues.find(i => i.code === 'avif_not_used');
+    expect(avifIssue).toBeUndefined();
+  });
+
+  it('should NOT flag pages with no images', () => {
+    const html = `
+      <!DOCTYPE html>
+      <html>
+        <head><title>Example</title></head>
+        <body><p>No images here</p></body>
+      </html>
+    `;
+
+    const result = createCrawlResult({ html });
+    const issues = checkImageOptimization(result);
+
+    const avifIssue = issues.find(i => i.code === 'avif_not_used');
+    expect(avifIssue).toBeUndefined();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LCP Preload Detection Tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('LCP preload detection', () => {
+  it('should flag when hero image lacks preload hint', () => {
+    const html = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Example</title>
+        </head>
+        <body>
+          <img src="/hero.jpg" alt="Hero" width="1200" height="600">
+        </body>
+      </html>
+    `;
+
+    const result = createCrawlResult({ html });
+    const issues = checkResourceOptimization(result);
+
+    const lcpIssue = issues.find(i => i.code === 'lcp_image_not_preloaded');
+    expect(lcpIssue).toBeDefined();
+  });
+
+  it('should NOT flag when hero image has preload hint', () => {
+    const html = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Example</title>
+          <link rel="preload" as="image" href="/hero.jpg">
+        </head>
+        <body>
+          <img src="/hero.jpg" alt="Hero" width="1200" height="600">
+        </body>
+      </html>
+    `;
+
+    const result = createCrawlResult({ html });
+    const issues = checkResourceOptimization(result);
+
+    const lcpIssue = issues.find(i => i.code === 'lcp_image_not_preloaded');
+    expect(lcpIssue).toBeUndefined();
+  });
+
+  it('should NOT flag when first image is small (likely not LCP)', () => {
+    const html = `
+      <!DOCTYPE html>
+      <html>
+        <head><title>Example</title></head>
+        <body>
+          <img src="/icon.png" alt="Icon" width="32" height="32">
+        </body>
+      </html>
+    `;
+
+    const result = createCrawlResult({ html });
+    const issues = checkResourceOptimization(result);
+
+    const lcpIssue = issues.find(i => i.code === 'lcp_image_not_preloaded');
+    expect(lcpIssue).toBeUndefined();
+  });
+
+  it('should NOT flag when no images exist', () => {
+    const html = `
+      <!DOCTYPE html>
+      <html>
+        <head><title>Example</title></head>
+        <body><h1>Text Only Page</h1></body>
+      </html>
+    `;
+
+    const result = createCrawlResult({ html });
+    const issues = checkResourceOptimization(result);
+
+    const lcpIssue = issues.find(i => i.code === 'lcp_image_not_preloaded');
+    expect(lcpIssue).toBeUndefined();
+  });
+
+  it('should flag hero image in picture element without preload', () => {
+    const html = `
+      <!DOCTYPE html>
+      <html>
+        <head><title>Example</title></head>
+        <body>
+          <picture>
+            <source srcset="/hero.avif" type="image/avif">
+            <source srcset="/hero.webp" type="image/webp">
+            <img src="/hero.jpg" alt="Hero" width="1200" height="600">
+          </picture>
+        </body>
+      </html>
+    `;
+
+    const result = createCrawlResult({ html });
+    const issues = checkResourceOptimization(result);
+
+    const lcpIssue = issues.find(i => i.code === 'lcp_image_not_preloaded');
+    expect(lcpIssue).toBeDefined();
   });
 });

@@ -245,6 +245,69 @@ function checkFontDisplay($: cheerio.CheerioAPI, url: string): ResourceIssue[] {
   }];
 }
 
+/** Minimum dimensions to consider an image as potential LCP candidate. */
+const LCP_MIN_WIDTH = 200;
+const LCP_MIN_HEIGHT = 200;
+
+/**
+ * Detect when the likely LCP image is not preloaded.
+ *
+ * The first large image on the page is typically the LCP element.
+ * Preloading it allows the browser to fetch it earlier, improving LCP scores.
+ */
+function checkLcpImagePreload($: cheerio.CheerioAPI, url: string): ResourceIssue[] {
+  // Find all images with dimensions
+  const images = $('img[src]').toArray();
+  if (images.length === 0) return [];
+
+  // Find the first "large" image (likely LCP candidate)
+  let lcpCandidate: { src: string; width: number; height: number } | null = null;
+
+  for (const img of images) {
+    const src = $(img).attr('src') ?? '';
+    const width = Number.parseInt($(img).attr('width') ?? '0', 10);
+    const height = Number.parseInt($(img).attr('height') ?? '0', 10);
+
+    // Skip small images, data URIs, and SVGs
+    if (src.startsWith('data:') || src.endsWith('.svg')) continue;
+    if (width < LCP_MIN_WIDTH && height < LCP_MIN_HEIGHT) continue;
+
+    // Found a large image - this is our LCP candidate
+    lcpCandidate = { src, width, height };
+    break;
+  }
+
+  if (!lcpCandidate) return [];
+
+  // Check if this image has a preload hint
+  const preloads = $('link[rel="preload"][as="image"]').toArray();
+  const isPreloaded = preloads.some((link) => {
+    const href = $(link).attr('href') ?? '';
+    const imagesrcset = $(link).attr('imagesrcset') ?? '';
+    // Check if preload matches the LCP image src
+    return href === lcpCandidate.src || imagesrcset.includes(lcpCandidate.src);
+  });
+
+  if (isPreloaded) return [];
+
+  return [{
+    code: 'lcp_image_not_preloaded',
+    severity: 'P2' as const,
+    category: 'PERFORMANCE' as const,
+    title: 'LCP image candidate is not preloaded',
+    whyItMatters:
+      'The Largest Contentful Paint (LCP) image is discovered late during HTML parsing. Preloading it allows the browser to fetch it earlier, improving LCP scores.',
+    howToFix:
+      'Add <link rel="preload" as="image" href="..."> in the <head> for your hero/LCP image. For responsive images, use imagesrcset and imagesizes attributes.',
+    evidence: {
+      url,
+      details: `Hero image "${lcpCandidate.src}" (${lcpCandidate.width}×${lcpCandidate.height}) lacks preload hint`,
+    },
+    impact: 4,
+    effort: 1,
+  }];
+}
+
 /**
  * Detect unminified inline `<script>` and `<style>` blocks.
  *
@@ -335,6 +398,7 @@ export function checkResourceOptimization(result: CrawlResult): ResourceIssue[] 
     ...checkRenderBlockingCss($, result.url),
     ...checkRenderBlockingJs($, result.url),
     ...checkPreloadHints($, result.url),
+    ...checkLcpImagePreload($, result.url),
     ...checkExcessiveRequests($, result.url),
     ...checkFontDisplay($, result.url),
     ...checkUnminifiedInlineCode($, result.url),
