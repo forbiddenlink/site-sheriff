@@ -3,7 +3,8 @@ import { checkEEAT } from './eeat-checker';
 import { checkSEO } from './seo-checker';
 import { checkImageOptimization } from './image-checker';
 import { checkResourceOptimization } from './resource-checker';
-import { checkLlmsTxt } from './ai-readiness-checker';
+import { checkLlmsTxt, checkAIReadiness } from './ai-readiness-checker';
+import { parseDisallowPatterns, isDisallowedByRobots } from './robots-checker';
 import { checkContentSimilarity } from './content-similarity-checker';
 import type { CrawlResult } from './crawler';
 
@@ -677,5 +678,149 @@ describe('content similarity detection', () => {
     const issues = checkContentSimilarity([page1]);
 
     expect(issues).toHaveLength(0);
+  });
+});
+
+describe('parseDisallowPatterns', () => {
+  it('should extract Disallow patterns from robots.txt', () => {
+    const robotsTxt = `
+User-agent: *
+Disallow: /admin/
+Disallow: /private/
+Allow: /
+
+Sitemap: https://example.com/sitemap.xml
+    `;
+
+    const patterns = parseDisallowPatterns(robotsTxt);
+
+    expect(patterns).toContain('/admin/');
+    expect(patterns).toContain('/private/');
+    expect(patterns).not.toContain('/'); // Blanket disallow is excluded
+  });
+
+  it('should handle empty robots.txt', () => {
+    const patterns = parseDisallowPatterns('');
+    expect(patterns).toHaveLength(0);
+  });
+
+  it('should dedupe patterns', () => {
+    const robotsTxt = `
+User-agent: *
+Disallow: /admin/
+
+User-agent: Googlebot
+Disallow: /admin/
+    `;
+
+    const patterns = parseDisallowPatterns(robotsTxt);
+
+    expect(patterns.filter(p => p === '/admin/')).toHaveLength(1);
+  });
+});
+
+describe('isDisallowedByRobots', () => {
+  it('should match simple prefix patterns', () => {
+    const patterns = ['/admin/', '/private/'];
+
+    expect(isDisallowedByRobots('https://example.com/admin/dashboard', patterns)).toBe(true);
+    expect(isDisallowedByRobots('https://example.com/private/settings', patterns)).toBe(true);
+    expect(isDisallowedByRobots('https://example.com/public/page', patterns)).toBe(false);
+  });
+
+  it('should handle wildcard patterns', () => {
+    const patterns = ['/user/*/settings'];
+
+    expect(isDisallowedByRobots('https://example.com/user/123/settings', patterns)).toBe(true);
+    expect(isDisallowedByRobots('https://example.com/user/abc/settings', patterns)).toBe(true);
+    expect(isDisallowedByRobots('https://example.com/user/123/profile', patterns)).toBe(false);
+  });
+
+  it('should return false for empty patterns', () => {
+    expect(isDisallowedByRobots('https://example.com/admin', [])).toBe(false);
+  });
+});
+
+describe('checkAIReadiness - citation friendliness', () => {
+  it('should flag article pages without citation-friendly patterns', () => {
+    const result = createCrawlResult({
+      url: 'https://example.com/blog/my-article',
+      html: `
+        <html><body>
+          <article>
+            <h1>My Long Article About Things</h1>
+            <p>This is a long article that discusses various topics in depth.
+            We explore many different aspects of the subject matter without
+            using any structured elements like lists or statistics.
+            The content continues for several paragraphs covering different
+            areas of interest to our readers who want to learn more.</p>
+            <p>Additional content here to meet the minimum length requirement.
+            More prose that continues without any clear structure or
+            citation-friendly patterns that AI systems prefer to extract.
+            This makes it harder for AI to cite specific facts or points.</p>
+            <p>Even more unstructured content filling out the article length.
+            The writing style is conversational but lacks the structured
+            elements that make content easy to cite and reference.</p>
+          </article>
+        </body></html>
+      `,
+    });
+
+    const issues = checkAIReadiness(result);
+
+    const citationIssue = issues.find(i => i.code === 'low_citation_friendliness');
+    expect(citationIssue).toBeDefined();
+    expect(citationIssue?.severity).toBe('P3');
+  });
+
+  it('should NOT flag articles with numbered lists', () => {
+    const result = createCrawlResult({
+      url: 'https://example.com/blog/my-article',
+      html: `
+        <html><body>
+          <article>
+            <h1>Top 5 Tips for Success</h1>
+            <p>Here are our recommendations for achieving success in your projects.
+            Following these steps will help you reach your goals efficiently.</p>
+            <ol>
+              <li>Start with clear objectives</li>
+              <li>Break down tasks into smaller pieces</li>
+              <li>Track your progress regularly</li>
+              <li>Adjust your approach as needed</li>
+              <li>Celebrate small wins along the way</li>
+            </ol>
+            <p>By following these steps, you can significantly improve your outcomes.</p>
+          </article>
+        </body></html>
+      `,
+    });
+
+    const issues = checkAIReadiness(result);
+
+    const citationIssue = issues.find(i => i.code === 'low_citation_friendliness');
+    expect(citationIssue).toBeUndefined();
+  });
+
+  it('should NOT flag articles with statistics', () => {
+    const result = createCrawlResult({
+      url: 'https://example.com/blog/research',
+      html: `
+        <html><body>
+          <article>
+            <h1>Industry Research Report</h1>
+            <p>According to our research, 75% of users prefer faster loading times.
+            This study shows that performance optimization leads to better outcomes.
+            The data shows clear patterns in user behavior and preferences.</p>
+            <p>Additional research indicates that companies investing in speed
+            see significant improvements in conversion rates and user satisfaction.</p>
+          </article>
+        </body></html>
+      `,
+    });
+
+    const issues = checkAIReadiness(result);
+
+    const citationIssue = issues.find(i => i.code === 'low_citation_friendliness');
+    expect(citationIssue).toBeUndefined();
   });
 });

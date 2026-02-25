@@ -1,3 +1,60 @@
+/**
+ * Parse robots.txt content and extract Disallow patterns.
+ * Returns an array of path patterns that are disallowed.
+ */
+export function parseDisallowPatterns(robotsTxtContent: string): string[] {
+  if (!robotsTxtContent) return [];
+
+  const patterns: string[] = [];
+  const lines = robotsTxtContent.split('\n');
+  let currentUserAgent = '';
+
+  for (const line of lines) {
+    const trimmed = line.trim().toLowerCase();
+
+    // Track user-agent blocks
+    if (trimmed.startsWith('user-agent:')) {
+      currentUserAgent = trimmed.replace('user-agent:', '').trim();
+      continue;
+    }
+
+    // Only extract Disallow for * (all bots) or common crawlers
+    if (trimmed.startsWith('disallow:') &&
+        (currentUserAgent === '*' || currentUserAgent === '' ||
+         currentUserAgent.includes('googlebot') || currentUserAgent.includes('bingbot'))) {
+      const pattern = line.split(':')[1]?.trim();
+      if (pattern && pattern !== '/') {
+        // Skip blanket disallow - we only want specific paths
+        patterns.push(pattern);
+      }
+    }
+  }
+
+  return [...new Set(patterns)]; // Dedupe
+}
+
+/**
+ * Check if a URL matches any Disallow pattern from robots.txt
+ */
+export function isDisallowedByRobots(url: string, disallowPatterns: string[]): boolean {
+  if (disallowPatterns.length === 0) return false;
+
+  try {
+    const pathname = new URL(url).pathname;
+    return disallowPatterns.some(pattern => {
+      // Handle wildcard patterns
+      if (pattern.includes('*')) {
+        const regex = new RegExp('^' + pattern.replace(/\*/g, '.*') + '$');
+        return regex.test(pathname);
+      }
+      // Simple prefix match
+      return pathname.startsWith(pattern);
+    });
+  } catch {
+    return false;
+  }
+}
+
 export interface RobotsIssue {
   code: string;
   severity: 'P0' | 'P1' | 'P2' | 'P3';
@@ -21,6 +78,7 @@ export interface RobotsIssue {
 export interface RobotsSitemapResult {
   issues: RobotsIssue[];
   sitemapUrls: string[];
+  disallowPatterns: string[];
 }
 
 /**
@@ -191,5 +249,6 @@ export async function checkRobotsSitemap(baseUrl: string): Promise<RobotsSitemap
     }
   }
 
-  return { issues, sitemapUrls: extractedSitemapUrls };
+  const disallowPatterns = parseDisallowPatterns(robotsTxtContent);
+  return { issues, sitemapUrls: extractedSitemapUrls, disallowPatterns };
 }

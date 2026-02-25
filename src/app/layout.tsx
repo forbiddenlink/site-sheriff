@@ -80,6 +80,36 @@ const jsonLd = {
         url: 'https://github.com/forbiddenlink/site-sheriff/issues',
       },
     },
+    {
+      '@type': 'FAQPage',
+      '@id': `${siteUrl}/#faq`,
+      mainEntity: [
+        {
+          '@type': 'Question',
+          name: 'What does Site Sheriff check?',
+          acceptedAnswer: {
+            '@type': 'Answer',
+            text: 'Site Sheriff runs 160+ checks across 10 categories: SEO, security, accessibility, performance, broken links, content quality, images, resources, robots/sitemap, and internal linking.',
+          },
+        },
+        {
+          '@type': 'Question',
+          name: 'How long does a scan take?',
+          acceptedAnswer: {
+            '@type': 'Answer',
+            text: 'Most scans complete in under 90 seconds for sites up to 50 pages. Larger sites or full-page screenshots may take longer.',
+          },
+        },
+        {
+          '@type': 'Question',
+          name: 'Is Site Sheriff free?',
+          acceptedAnswer: {
+            '@type': 'Answer',
+            text: 'Yes, Site Sheriff is completely free to use. No signup required - just drop your URL and get your report.',
+          },
+        },
+      ],
+    },
   ],
 };
 

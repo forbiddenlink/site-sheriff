@@ -6,7 +6,7 @@ import { checkSEO, checkDuplicates, checkStructuredData, checkSPARendering, vali
 import { checkPerformance } from './perf-checker';
 import { checkSecurity, checkSecurityTxt, checkHttpsRedirect } from './security-checker';
 import { checkCompression } from './compression-checker';
-import { checkRobotsSitemap } from './robots-checker';
+import { checkRobotsSitemap, parseDisallowPatterns } from './robots-checker';
 import { detectTechnologies } from './tech-detector';
 import { generateEmailDraft } from './email-draft';
 import { checkContentQuality } from './content-checker';
@@ -141,6 +141,24 @@ export async function runScan(ctx: ScanContext): Promise<void> {
     completedPhases.push('crawl');
 
     // ─────────────────────────────────────────────────────────────────────────
+    // Early robots.txt fetch for Disallow patterns (used in SEO downgrade)
+    // ─────────────────────────────────────────────────────────────────────────
+    let disallowPatterns: string[] = [];
+    try {
+      const robotsUrl = `${new URL(normalizedUrl).origin}/robots.txt`;
+      const robotsRes = await fetch(robotsUrl, {
+        headers: { 'User-Agent': 'SiteSheriffBot/1.0' },
+        signal: AbortSignal.timeout(3000),
+      });
+      if (robotsRes.ok) {
+        const robotsContent = await robotsRes.text();
+        disallowPatterns = parseDisallowPatterns(robotsContent);
+      }
+    } catch {
+      // robots.txt unavailable - proceed without disallow patterns
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
     // Phase 2: Check SEO issues
     // ─────────────────────────────────────────────────────────────────────────
     await updateProgress(scanRunId, {
@@ -164,7 +182,7 @@ export async function runScan(ctx: ScanContext): Promise<void> {
 
     for (const result of htmlPages) {
       if (!result.error) {
-        const seoIssues = checkSEO(result);
+        const seoIssues = checkSEO(result, disallowPatterns);
         allIssues.push(...seoIssues);
 
         const structuredDataIssues = checkStructuredData(result);

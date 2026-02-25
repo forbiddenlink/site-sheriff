@@ -186,6 +186,60 @@ function checkAuthorshipSignals($: cheerio.CheerioAPI, url: string): AIReadiness
 }
 
 /**
+ * Check for citation-friendly content patterns that AI systems prefer.
+ * Detects: numbered lists, statistics, definitions, quotable statements.
+ */
+function checkCitationFriendliness($: cheerio.CheerioAPI, url: string): AIReadinessIssue[] {
+  // Only check article-type pages with substantial content
+  const isArticlePage = $('article').length > 0 ||
+                        $('meta[property="og:type"][content="article"]').length > 0;
+
+  const paragraphs = $('article p, main p, .content p, [role="main"] p').toArray();
+  const textContent = paragraphs.map(p => $(p).text()).join(' ');
+
+  // Skip pages with minimal content
+  if (textContent.length < 500) return [];
+
+  // Count citation-friendly patterns
+  const hasNumberedLists = $('ol li').length >= 3;
+  const hasBulletLists = $('ul li').length >= 3;
+  const hasDefinitions = /\b(?:is defined as|refers to|means that|is when)\b/i.test(textContent);
+  const hasStatistics = /\b\d+(?:\.\d+)?%|\b(?:according to|study shows|research indicates|data shows)\b/i.test(textContent);
+  const hasBlockquotes = $('blockquote').length > 0;
+
+  const citationPatterns = [
+    hasNumberedLists,
+    hasBulletLists,
+    hasDefinitions,
+    hasStatistics,
+    hasBlockquotes,
+  ].filter(Boolean).length;
+
+  // Only flag article pages with low citation-friendliness
+  if (isArticlePage && citationPatterns === 0) {
+    return [{
+      code: 'low_citation_friendliness',
+      severity: 'P3' as const,
+      category: 'CONTENT' as const,
+      title: 'Content lacks citation-friendly patterns',
+      whyItMatters:
+        'AI systems like ChatGPT and Perplexity prefer citing content with clear structure: numbered lists, statistics, definitions, or quotable statements. Unstructured prose is harder to extract and cite accurately.',
+      howToFix:
+        'Add structured elements: numbered lists for steps/rankings, statistics with sources, clear definitions for key terms, or blockquotes for key takeaways. These make your content more extractable for AI citations.',
+      evidence: {
+        url,
+        actual: 'No citation-friendly patterns detected',
+        expected: 'Lists, statistics, definitions, or blockquotes',
+      },
+      impact: 2,
+      effort: 2,
+    }];
+  }
+
+  return [];
+}
+
+/**
  * Check for clear content summary/intro that AI can extract.
  * First paragraph should summarize the page content.
  */
@@ -241,6 +295,7 @@ function checkContentSummary($: cheerio.CheerioAPI, url: string, metaDescription
  * 3. **missing_author_attribution** – article without author info
  * 4. **missing_publish_date** – article without publication date
  * 5. **weak_content_intro** – no clear summary for AI extraction
+ * 6. **low_citation_friendliness** – article lacks lists, stats, or definitions
  *
  * @param result - The crawl result for a single page.
  * @returns An array of issues found.
@@ -254,6 +309,7 @@ export function checkAIReadiness(result: CrawlResult): AIReadinessIssue[] {
     ...checkFAQSchema($, result.url),
     ...checkAuthorshipSignals($, result.url),
     ...checkContentSummary($, result.url, result.metaDescription),
+    ...checkCitationFriendliness($, result.url),
   ];
 }
 

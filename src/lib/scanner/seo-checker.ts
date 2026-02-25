@@ -1,10 +1,17 @@
 import type { CrawlResult } from './crawler';
+import { isDisallowedByRobots } from './robots-checker';
 
 /**
  * Detect if a URL is likely an authenticated/dashboard page that shouldn't
  * be prioritized for SEO issues (since search engines can't access them).
+ * Also checks robots.txt Disallow patterns if provided.
  */
-function isLikelyAuthPage(url: string): boolean {
+function isLikelyAuthPage(url: string, disallowPatterns: string[] = []): boolean {
+  // Check robots.txt Disallow patterns first
+  if (isDisallowedByRobots(url, disallowPatterns)) {
+    return true;
+  }
+
   try {
     const pathname = new URL(url).pathname.toLowerCase();
     const authPatterns = [
@@ -49,14 +56,16 @@ export interface SEOIssue {
 
 /**
  * Analyze a crawl result for SEO issues
+ * @param result - The crawl result for a single page
+ * @param disallowPatterns - Optional robots.txt Disallow patterns for auth page detection
  */
-export function checkSEO(result: CrawlResult): SEOIssue[] {
+export function checkSEO(result: CrawlResult, disallowPatterns: string[] = []): SEOIssue[] {
   const issues: SEOIssue[] = [];
   let isHomepage = false;
   try { isHomepage = ['/', ''].includes(new URL(result.url).pathname); } catch { /* ignore */ }
 
   // Detect auth/dashboard pages - downgrade their SEO issues since search engines can't access them
-  const isAuthPage = isLikelyAuthPage(result.url);
+  const isAuthPage = isLikelyAuthPage(result.url, disallowPatterns);
 
   // Missing title - downgrade for auth pages
   if (!result.title) {
