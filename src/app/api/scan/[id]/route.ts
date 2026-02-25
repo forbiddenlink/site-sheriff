@@ -24,11 +24,11 @@ export async function GET(request: NextRequest, context: RouteContext) {
     }
 
     // Get previous scan for trend comparison
-    let previousScan: { score: number; createdAt: string } | null = null;
+    let previousScan: { id: string; score: number; createdAt: string } | null = null;
     if (scanRun.status === 'SUCCEEDED' && scanRun.normalizedUrl) {
       const { data: prevScans } = await supabaseAdmin
         .from('ScanRun')
-        .select('summary, createdAt')
+        .select('id, summary, createdAt')
         .eq('normalizedUrl', scanRun.normalizedUrl)
         .eq('status', 'SUCCEEDED')
         .neq('id', id)
@@ -37,6 +37,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
 
       if (prevScans && prevScans.length > 0 && prevScans[0].summary?.overallScore != null) {
         previousScan = {
+          id: prevScans[0].id,
           score: prevScans[0].summary.overallScore,
           createdAt: prevScans[0].createdAt,
         };
@@ -54,7 +55,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
     // Get page results
     const { data: pages } = await supabaseAdmin
       .from('PageResult')
-      .select('id, url, statusCode, loadTimeMs, title, metaDescription, h1, screenshotPath')
+      .select('id, url, statusCode, loadTimeMs, title, metaDescription, h1, screenshotPath, links')
       .eq('scanRunId', id);
 
     return NextResponse.json({

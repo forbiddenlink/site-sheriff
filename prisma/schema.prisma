@@ -20,11 +20,14 @@ model ScanRun {
   progress         Json         @default("{}")
   summary          Json?
   clientEmailDraft String?
+  shareToken       String?      @unique
   issues           Issue[]
   pageResults      PageResult[]
 
   @@index([status])
   @@index([createdAt])
+  @@index([normalizedUrl])
+  @@index([normalizedUrl, status, createdAt])
 }
 
 model PageResult {

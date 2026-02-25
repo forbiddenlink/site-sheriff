@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 
@@ -38,6 +38,12 @@ function truncateUrl(url: string, max = 40): string {
   const cleaned = url.replace(/^https?:\/\//, '').replace(/\/$/, '');
   return cleaned.length > max ? cleaned.slice(0, max) + '…' : cleaned;
 }
+
+const screenshotModeLabels: Record<'none' | 'above-fold' | 'full-page', string> = {
+  'none': 'Off',
+  'above-fold': 'Viewport',
+  'full-page': 'Full Page',
+};
 
 // ── Feature data ────────────────────────────────────────────────────────────
 const features = [
@@ -166,7 +172,7 @@ export default function Home() {
       .catch(() => setScansLoaded(true));
   }, []);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError(null);
     setIsLoading(true);
@@ -292,11 +298,12 @@ export default function Home() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                   {/* Max Pages */}
                   <div>
-                    <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">
+                    <label htmlFor="maxPages" className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">
                       Max Pages
                     </label>
                     <div className="flex items-center gap-3">
                       <input
+                        id="maxPages"
                         type="range"
                         min={1}
                         max={200}
@@ -311,11 +318,12 @@ export default function Home() {
 
                   {/* Max Depth */}
                   <div>
-                    <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">
+                    <label htmlFor="maxDepth" className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">
                       Crawl Depth
                     </label>
                     <div className="flex items-center gap-3">
                       <input
+                        id="maxDepth"
                         type="range"
                         min={1}
                         max={5}
@@ -332,10 +340,10 @@ export default function Home() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                   {/* Screenshot Mode */}
                   <div>
-                    <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">
+                    <span id="screenshotModeLabel" className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">
                       Screenshots
-                    </label>
-                    <div className="flex gap-2">
+                    </span>
+                    <div className="flex gap-2" role="group" aria-labelledby="screenshotModeLabel">
                       {(['none', 'above-fold', 'full-page'] as const).map((mode) => (
                         <button
                           key={mode}
@@ -347,7 +355,7 @@ export default function Home() {
                               : 'bg-white/2 text-slate-500 border border-white/6 hover:text-slate-300'
                           }`}
                         >
-                          {mode === 'none' ? 'Off' : mode === 'above-fold' ? 'Viewport' : 'Full Page'}
+                          {screenshotModeLabels[mode]}
                         </button>
                       ))}
                     </div>
@@ -355,11 +363,14 @@ export default function Home() {
 
                   {/* Performance Check Toggle */}
                   <div>
-                    <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">
+                    <span id="performanceAuditLabel" className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">
                       Performance Audit
-                    </label>
+                    </span>
                     <button
                       type="button"
+                      role="switch"
+                      aria-checked={includePerformance}
+                      aria-labelledby="performanceAuditLabel"
                       onClick={() => setIncludePerformance(!includePerformance)}
                       className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors ${
                         includePerformance ? 'bg-emerald-500/30' : 'bg-white/6'

@@ -1,0 +1,28 @@
+{
+  "version": "0.2",
+  "language": "en",
+  "words": [
+    "domhandler",
+    "supabase",
+    "nums",
+    "tabular",
+    "clickjacking",
+    "SAMEORIGIN",
+    "nosniff",
+    "hsts",
+    "httponly",
+    "noopener",
+    "noreferrer",
+    "KHTML",
+    "misclicks",
+    "penalising",
+    "cuid",
+    "signin",
+    "signup"
+  ],
+  "ignorePaths": [
+    "node_modules",
+    ".next",
+    "pnpm-lock.yaml"
+  ]
+}

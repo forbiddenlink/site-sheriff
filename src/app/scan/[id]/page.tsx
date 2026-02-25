@@ -1,8 +1,9 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
+import { CrawlMap } from './crawl-map';
 
 interface ScanData {
   id: string;
@@ -63,8 +64,10 @@ interface ScanData {
     statusCode: number | null;
     title: string | null;
     screenshotPath?: string | null;
+    links?: Array<{ href: string; text: string; isInternal: boolean }> | null;
   }>;
   previousScan?: {
+    id: string;
     score: number;
     createdAt: string;
   } | null;
@@ -78,6 +81,34 @@ function ScoreRing({ score, size = 120 }: { score: number; size?: number }) {
   const radius = (size - strokeWidth) / 2;
   const circumference = radius * 2 * Math.PI;
   const offset = circumference - (score / 100) * circumference;
+
+  const [displayScore, setDisplayScore] = useState(0);
+  const [mounted, setMounted] = useState(false);
+  const rafRef = useRef<number>(0);
+
+  useEffect(() => {
+    // Trigger the SVG ring animation on mount
+    requestAnimationFrame(() => setMounted(true));
+
+    // Count-up animation
+    const duration = 1500;
+    const startTime = performance.now();
+
+    const animate = (now: number) => {
+      const elapsed = now - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+      // Ease-out cubic
+      const eased = 1 - Math.pow(1 - progress, 3);
+      setDisplayScore(Math.round(eased * score));
+
+      if (progress < 1) {
+        rafRef.current = requestAnimationFrame(animate);
+      }
+    };
+
+    rafRef.current = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(rafRef.current);
+  }, [score]);
 
   const getColor = (s: number) => {
     if (s >= 80) return 'url(#emeraldGrad)';
@@ -121,15 +152,39 @@ function ScoreRing({ score, size = 120 }: { score: number; size?: number }) {
           strokeWidth={strokeWidth}
           fill="transparent"
           strokeDasharray={circumference}
-          strokeDashoffset={offset}
+          strokeDashoffset={mounted ? offset : circumference}
           strokeLinecap="round"
-          className="transition-all duration-1000"
+          className="transition-all duration-[1500ms] ease-out"
         />
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center z-20">
         <span className="text-4xl font-bold tracking-tighter text-transparent bg-clip-text bg-[linear-gradient(to_bottom,#fff,#94a3b8)]">
-          {score}
+          {displayScore}
         </span>
+      </div>
+    </div>
+  );
+}
+
+function CategoryScoreBar({ cat, score, barColor, bgGlow }: { cat: string; score: number; barColor: string; bgGlow: string }) {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    requestAnimationFrame(() => setMounted(true));
+  }, []);
+
+  return (
+    <div className="flex flex-col">
+      <div className="text-3xl font-bold tracking-tighter text-transparent bg-clip-text bg-[linear-gradient(to_bottom,#fff,#94a3b8)]">
+        {score}
+      </div>
+      <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-1 mb-2">
+        {cat}
+      </div>
+      <div className="w-full h-1.5 rounded-full bg-white/6 overflow-hidden">
+        <div
+          className={`h-full rounded-full bg-gradient-to-r ${barColor} shadow-md ${bgGlow} transition-all duration-[1200ms] ease-out`}
+          style={{ width: mounted ? `${score}%` : '0%' }}
+        />
       </div>
     </div>
   );
@@ -207,6 +262,8 @@ export default function ScanPage() {
   const [expandedScreenshot, setExpandedScreenshot] = useState<string | null>(null);
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<'severity' | 'category'>('severity');
+  const [shareLoading, setShareLoading] = useState(false);
+  const [showExportMenu, setShowExportMenu] = useState(false);
 
   const toggleIssue = (issueId: string) => {
     setExpandedIssues((prev) => {
@@ -221,9 +278,29 @@ export default function ScanPage() {
   };
 
   const handleShareReport = async () => {
-    await navigator.clipboard.writeText(globalThis.location.href);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    if (!id) return;
+    setShareLoading(true);
+    try {
+      const res = await fetch(`/api/scan/${id}/share`, { method: 'POST' });
+      if (!res.ok) throw new Error('Failed to create share link');
+      const { shareToken } = await res.json();
+      const shareUrl = `${globalThis.location.origin}/shared/${shareToken}`;
+      await navigator.clipboard.writeText(shareUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      await navigator.clipboard.writeText(globalThis.location.href);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } finally {
+      setShareLoading(false);
+    }
+  };
+
+  const handleExport = (format: 'csv' | 'json') => {
+    if (!id) return;
+    setShowExportMenu(false);
+    globalThis.open(`/api/scan/${id}/export?format=${format}`, '_blank');
   };
 
   const handleCopyEmail = async () => {
@@ -419,11 +496,39 @@ export default function ScanPage() {
               >
                 Download PDF
               </button>
+              <div className="relative">
+                <button
+                  onClick={() => setShowExportMenu(!showExportMenu)}
+                  className="px-5 py-2.5 rounded-xl bg-white/4 border border-white/8 text-slate-300 hover:bg-white/8 hover:text-white transition-all text-sm font-medium backdrop-blur-md active:scale-95 flex items-center gap-2"
+                >
+                  Export
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+                {showExportMenu && (
+                  <div className="absolute right-0 mt-2 w-40 bg-[#0a0f1a] border border-white/10 rounded-xl shadow-2xl overflow-hidden z-50">
+                    <button
+                      onClick={() => handleExport('csv')}
+                      className="w-full text-left px-4 py-3 text-sm text-slate-300 hover:bg-white/6 hover:text-white transition-colors"
+                    >
+                      Download CSV
+                    </button>
+                    <button
+                      onClick={() => handleExport('json')}
+                      className="w-full text-left px-4 py-3 text-sm text-slate-300 hover:bg-white/6 hover:text-white transition-colors border-t border-white/6"
+                    >
+                      Download JSON
+                    </button>
+                  </div>
+                )}
+              </div>
               <button
                 onClick={handleShareReport}
-                className="px-5 py-2.5 rounded-xl bg-white/4 border border-white/8 text-slate-300 hover:bg-white/8 hover:text-white transition-all text-sm font-medium backdrop-blur-md active:scale-95"
+                disabled={shareLoading}
+                className="px-5 py-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20 hover:text-emerald-300 transition-all text-sm font-medium backdrop-blur-md active:scale-95 disabled:opacity-50"
               >
-                {copied ? 'Copied!' : 'Share Report'}
+                {copied ? 'Copied!' : shareLoading ? 'Creating link...' : 'Share Report'}
               </button>
             </div>
           )}
@@ -516,7 +621,12 @@ export default function ScanPage() {
                          </span>
                        );
                      })()}
-                     <span className="text-[10px] text-slate-500">vs previous scan</span>
+                     <Link
+                       href={`/scans/compare?a=${data.previousScan.id}&b=${data.id}`}
+                       className="text-[10px] text-emerald-400 hover:underline"
+                     >
+                       Compare →
+                     </Link>
                    </div>
                  )}
               </div>
@@ -526,22 +636,90 @@ export default function ScanPage() {
                   <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-8">
                     Diagnostic Vectors
                   </h2>
-                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-6">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-6">
                     {Object.entries(data.summary.categoryScores).map(
-                      ([cat, score]) => (
-                        <div key={cat} className="flex flex-col">
-                          <div className="text-3xl font-bold tracking-tighter text-transparent bg-clip-text bg-[linear-gradient(to_bottom,#fff,#94a3b8)]">
-                            {score}
-                          </div>
-                          <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-1">
-                            {cat}
-                          </div>
-                        </div>
-                      )
+                      ([cat, catScore]) => {
+                        const barColor =
+                          catScore >= 80
+                            ? 'from-emerald-500 to-emerald-400'
+                            : catScore >= 50
+                              ? 'from-amber-500 to-amber-400'
+                              : 'from-red-500 to-red-400';
+                        const bgGlow =
+                          catScore >= 80
+                            ? 'shadow-emerald-500/20'
+                            : catScore >= 50
+                              ? 'shadow-amber-500/20'
+                              : 'shadow-red-500/20';
+                        return (
+                          <CategoryScoreBar key={cat} cat={cat} score={catScore} barColor={barColor} bgGlow={bgGlow} />
+                        );
+                      }
                     )}
                   </div>
               </div>
             </div>
+
+            {/* Issue Distribution Chart */}
+            {data.issues.length > 0 && (() => {
+              const severities = [
+                { key: 'P0', label: 'Critical', color: 'bg-red-500', textColor: 'text-red-400' },
+                { key: 'P1', label: 'High', color: 'bg-orange-500', textColor: 'text-orange-400' },
+                { key: 'P2', label: 'Medium', color: 'bg-amber-500', textColor: 'text-amber-400' },
+                { key: 'P3', label: 'Low', color: 'bg-emerald-500', textColor: 'text-emerald-400' },
+              ];
+              const counts = severities.map((s) => ({
+                ...s,
+                count: data.issues.filter((i: { severity: string }) => i.severity === s.key).length,
+              }));
+              const total = counts.reduce((sum, c) => sum + c.count, 0);
+              if (total === 0) return null;
+              return (
+                <div className="bg-white/2 border border-white/6 backdrop-blur-md rounded-3xl p-8 mb-8">
+                  <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-6">
+                    Issue Distribution
+                  </h2>
+                  {/* Stacked Bar */}
+                  <div className="relative w-full h-8 rounded-full overflow-hidden bg-white/4 flex">
+                    {counts.map((s) => {
+                      if (s.count === 0) return null;
+                      const pct = (s.count / total) * 100;
+                      return (
+                        <div
+                          key={s.key}
+                          className={`${s.color} relative group h-full transition-all duration-1000 ease-out first:rounded-l-full last:rounded-r-full`}
+                          style={{ width: `${pct}%` }}
+                        >
+                          {/* Tooltip */}
+                          <div className="absolute -top-10 left-1/2 -translate-x-1/2 px-2.5 py-1 rounded-lg bg-[#0a0f1a] border border-white/10 text-[10px] font-bold text-white opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap shadow-xl z-10">
+                            {s.key}: {s.count} issue{s.count !== 1 ? 's' : ''}
+                          </div>
+                          {pct > 8 && (
+                            <span className="absolute inset-0 flex items-center justify-center text-[10px] font-bold text-white/90">
+                              {s.count}
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {/* Labels */}
+                  <div className="flex items-center gap-5 mt-4">
+                    {counts.map((s) => (
+                      s.count > 0 && (
+                        <div key={s.key} className="flex items-center gap-2">
+                          <span className={`w-2.5 h-2.5 rounded-full ${s.color}`} />
+                          <span className={`text-[10px] font-bold uppercase tracking-widest ${s.textColor}`}>
+                            {s.key}
+                          </span>
+                          <span className="text-[10px] font-mono text-slate-500">{s.count}</span>
+                        </div>
+                      )
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Summary Stats */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
@@ -662,6 +840,11 @@ export default function ScanPage() {
                   </div>
                 )}
               </div>
+            )}
+
+            {/* Crawl Map */}
+            {data.pages.length > 1 && (
+              <CrawlMap pages={data.pages} baseUrl={data.normalizedUrl} />
             )}
 
             {/* Tech Stack */}

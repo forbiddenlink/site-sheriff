@@ -1,0 +1,1 @@
+ALTER TABLE "ScanRun" ADD COLUMN "shareToken" TEXT UNIQUE;

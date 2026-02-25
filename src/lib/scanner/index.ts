@@ -10,6 +10,9 @@ import { checkRobotsSitemap } from './robots-checker';
 import { detectTechnologies } from './tech-detector';
 import { generateEmailDraft } from './email-draft';
 import { checkContentQuality } from './content-checker';
+import { checkImageOptimization } from './image-checker';
+import { checkResourceOptimization } from './resource-checker';
+import { analyzeInternalLinking } from './linking-analyzer';
 import type { ScanSettings, ScanProgress, ScanSummary, LinkData } from '../types';
 
 export { Crawler } from './crawler';
@@ -18,6 +21,9 @@ export { checkAccessibility } from './a11y-checker';
 export { checkSEO, checkStructuredData } from './seo-checker';
 export { checkCompression } from './compression-checker';
 export { checkContentQuality } from './content-checker';
+export { checkImageOptimization } from './image-checker';
+export { checkResourceOptimization } from './resource-checker';
+export { analyzeInternalLinking } from './linking-analyzer';
 
 /**
  * Map axe impact level to a numeric impact score (1-5).
@@ -151,6 +157,26 @@ export async function runScan(ctx: ScanContext): Promise<void> {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+    // Phase 2a-images: Image optimization checks
+    // ─────────────────────────────────────────────────────────────────────────
+    for (const result of crawlResults) {
+      if (!result.error) {
+        const imageIssues = checkImageOptimization(result);
+        allIssues.push(...imageIssues);
+      }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Phase 2a-resources: Resource optimization checks
+    // ─────────────────────────────────────────────────────────────────────────
+    for (const result of crawlResults) {
+      if (!result.error) {
+        const resourceIssues = checkResourceOptimization(result);
+        allIssues.push(...resourceIssues);
+      }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
     // Phase 2b: Security checks
     // ─────────────────────────────────────────────────────────────────────────
     for (const result of crawlResults) {
@@ -190,6 +216,18 @@ export async function runScan(ctx: ScanContext): Promise<void> {
     if (crawlResults.length > 1) {
       const dupeIssues = checkDuplicates(crawlResults);
       allIssues.push(...dupeIssues);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Phase 2d-links: Internal linking analysis (cross-page)
+    // ─────────────────────────────────────────────────────────────────────────
+    if (crawlResults.length > 1) {
+      try {
+        const linkingIssues = analyzeInternalLinking(crawlResults, normalizedUrl);
+        allIssues.push(...linkingIssues);
+      } catch {
+        console.warn('Internal linking analysis failed');
+      }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
