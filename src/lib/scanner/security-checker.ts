@@ -126,58 +126,73 @@ export function checkSecurity(result: CrawlResult): SecurityIssue[] {
     }
   }
 
-  // Check cookie security
-  for (const cookie of result.cookies) {
+  // Check cookie security (limit to first 20 cookies to avoid report bloat)
+  const cookiesWithoutSecure: string[] = [];
+  const cookiesWithoutHttpOnly: string[] = [];
+  const cookiesWithoutSameSite: string[] = [];
+
+  for (const cookie of result.cookies.slice(0, 20)) {
     const cookieName = cookie.split('=')[0]?.trim();
     if (!cookieName) continue;
 
     const lowerCookie = cookie.toLowerCase();
 
     if (!lowerCookie.includes('secure')) {
-      issues.push({
-        code: 'cookie_missing_secure',
-        severity: 'P1',
-        category: 'SECURITY',
-        title: `Cookie "${cookieName}" missing Secure flag`,
-        whyItMatters:
-          'Without the Secure flag, cookies can be transmitted over unencrypted HTTP connections, exposing them to interception.',
-        howToFix: 'Add the Secure flag to the Set-Cookie header for this cookie.',
-        evidence: { url: result.url, actual: cookie.trim().slice(0, 100) },
-        impact: 4,
-        effort: 1,
-      });
+      cookiesWithoutSecure.push(cookieName);
     }
-
     if (!lowerCookie.includes('httponly')) {
-      issues.push({
-        code: 'cookie_missing_httponly',
-        severity: 'P2',
-        category: 'SECURITY',
-        title: `Cookie "${cookieName}" missing HttpOnly flag`,
-        whyItMatters:
-          'Without HttpOnly, cookies can be accessed by JavaScript, making them vulnerable to XSS-based cookie theft.',
-        howToFix: 'Add the HttpOnly flag to prevent JavaScript access to this cookie.',
-        evidence: { url: result.url, actual: cookie.trim().slice(0, 100) },
-        impact: 3,
-        effort: 1,
-      });
+      cookiesWithoutHttpOnly.push(cookieName);
     }
-
     if (!lowerCookie.includes('samesite')) {
-      issues.push({
-        code: 'cookie_missing_samesite',
-        severity: 'P3',
-        category: 'SECURITY',
-        title: `Cookie "${cookieName}" missing SameSite attribute`,
-        whyItMatters:
-          'Without SameSite, cookies are sent with cross-origin requests, potentially enabling CSRF attacks.',
-        howToFix:
-          'Add SameSite=Strict (or SameSite=Lax for login cookies) to the Set-Cookie header.',
-        evidence: { url: result.url, actual: cookie.trim().slice(0, 100) },
-        impact: 2,
-        effort: 1,
-      });
+      cookiesWithoutSameSite.push(cookieName);
     }
+  }
+
+  // Create consolidated issues for cookie problems
+  if (cookiesWithoutSecure.length > 0) {
+    issues.push({
+      code: 'cookie_missing_secure',
+      severity: 'P1',
+      category: 'SECURITY',
+      title: `${cookiesWithoutSecure.length} cookie(s) missing Secure flag`,
+      whyItMatters:
+        'Without the Secure flag, cookies can be transmitted over unencrypted HTTP connections, exposing them to interception.',
+      howToFix: 'Add the Secure flag to the Set-Cookie header for these cookies.',
+      evidence: { url: result.url, actual: cookiesWithoutSecure.slice(0, 5).join(', ') + (cookiesWithoutSecure.length > 5 ? ` (+${cookiesWithoutSecure.length - 5} more)` : '') },
+      impact: 4,
+      effort: 1,
+    });
+  }
+
+  if (cookiesWithoutHttpOnly.length > 0) {
+    issues.push({
+      code: 'cookie_missing_httponly',
+      severity: 'P2',
+      category: 'SECURITY',
+      title: `${cookiesWithoutHttpOnly.length} cookie(s) missing HttpOnly flag`,
+      whyItMatters:
+        'Without HttpOnly, cookies can be accessed by JavaScript, making them vulnerable to XSS-based cookie theft.',
+      howToFix: 'Add the HttpOnly flag to prevent JavaScript access to these cookies.',
+      evidence: { url: result.url, actual: cookiesWithoutHttpOnly.slice(0, 5).join(', ') + (cookiesWithoutHttpOnly.length > 5 ? ` (+${cookiesWithoutHttpOnly.length - 5} more)` : '') },
+      impact: 3,
+      effort: 1,
+    });
+  }
+
+  if (cookiesWithoutSameSite.length > 0) {
+    issues.push({
+      code: 'cookie_missing_samesite',
+      severity: 'P3',
+      category: 'SECURITY',
+      title: `${cookiesWithoutSameSite.length} cookie(s) missing SameSite attribute`,
+      whyItMatters:
+        'Without SameSite, cookies are sent with cross-origin requests, potentially enabling CSRF attacks.',
+      howToFix:
+        'Add SameSite=Strict (or SameSite=Lax for login cookies) to the Set-Cookie header.',
+      evidence: { url: result.url, actual: cookiesWithoutSameSite.slice(0, 5).join(', ') + (cookiesWithoutSameSite.length > 5 ? ` (+${cookiesWithoutSameSite.length - 5} more)` : '') },
+      impact: 2,
+      effort: 1,
+    });
   }
 
   // Check for mixed content

@@ -106,8 +106,12 @@ export class Crawler {
       this.baseHostname = getHostname(normalizedStart);
       this.queue.push({ url: normalizedStart, depth: 0 });
 
-      // Crawl loop
-      while (this.queue.length > 0 && this.visited.size < this.options.maxPages) {
+      // Crawl loop with iteration safeguard to prevent infinite loops
+      const maxIterations = this.options.maxPages * 3;
+      let iterations = 0;
+
+      while (this.queue.length > 0 && this.visited.size < this.options.maxPages && iterations < maxIterations) {
+        iterations++;
         const item = this.queue.shift();
         if (!item) break;
 
@@ -150,6 +154,10 @@ export class Crawler {
             }
           }
         }
+      }
+
+      if (iterations >= maxIterations) {
+        console.warn(`Crawler reached maximum iterations (${maxIterations}). Stopping to prevent infinite loop.`);
       }
     } finally {
       await this.close();
