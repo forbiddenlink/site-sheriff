@@ -17,14 +17,22 @@ export interface PerfResult {
   error?: string;
 }
 
-export async function checkPerformance(url: string): Promise<PerfResult> {
+export interface PerfCheckOptions {
+  viewport?: { width: number; height: number };
+  userAgent?: string;
+}
+
+export async function checkPerformance(url: string, options?: PerfCheckOptions): Promise<PerfResult> {
   let browser = null;
   try {
     browser = await chromium.launch({
       headless: true,
       args: ['--no-sandbox', '--disable-setuid-sandbox'],
     });
-    const context = await browser.newContext();
+    const context = await browser.newContext({
+      ...(options?.viewport ? { viewport: options.viewport } : {}),
+      ...(options?.userAgent ? { userAgent: options.userAgent } : {}),
+    });
     const page = await context.newPage();
 
     // Enable CDP session for performance metrics

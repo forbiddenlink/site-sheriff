@@ -539,3 +539,84 @@ export function checkDuplicates(results: CrawlResult[]): SEOIssue[] {
 
   return issues;
 }
+
+/**
+ * Detect if a page appears to be a client-side rendered SPA,
+ * which may cause incomplete audit results.
+ */
+export function checkSPARendering(result: CrawlResult): Array<{
+  code: string;
+  severity: 'P0' | 'P1' | 'P2' | 'P3';
+  category: 'SEO' | 'ACCESSIBILITY' | 'PERFORMANCE' | 'LINKS' | 'CONTENT' | 'SECURITY';
+  title: string;
+  whyItMatters: string | null;
+  howToFix: string | null;
+  evidence: object;
+  impact: number | null;
+  effort: number | null;
+}> {
+  const issues: Array<{
+    code: string;
+    severity: 'P0' | 'P1' | 'P2' | 'P3';
+    category: 'SEO' | 'ACCESSIBILITY' | 'PERFORMANCE' | 'LINKS' | 'CONTENT' | 'SECURITY';
+    title: string;
+    whyItMatters: string | null;
+    howToFix: string | null;
+    evidence: object;
+    impact: number | null;
+    effort: number | null;
+  }> = [];
+  const indicators: string[] = [];
+  const html = result.html || '';
+
+  // Check for SPA framework mount points
+  if (/<div\s+id=["'](root|app|__next|__nuxt|__svelte)["']/.test(html)) {
+    indicators.push('Framework mount point detected');
+  }
+
+  // Check for common SPA bundles
+  if (/\b(react|vue|angular|svelte)\b/i.test(html) || /\b(chunk|bundle)\.\w+\.js\b/.test(html)) {
+    indicators.push('SPA framework or bundled JS detected');
+  }
+
+  // Check for noscript tags (often present in SPAs)
+  if (/<noscript>/.test(html)) {
+    indicators.push('<noscript> fallback present');
+  }
+
+  // Only flag if word count is very low AND we found SPA indicators
+  const isLikelySPA = indicators.length >= 2 && (result.wordCount ?? 0) < 100;
+
+  // Also flag if the body has almost no content but has script tags
+  const bodyMatch = /<body[^>]*>([\s\S]*?)<\/body>/i.exec(html);
+  const bodyContent = bodyMatch ? bodyMatch[1] : '';
+  const scriptStripped = bodyContent
+    .replaceAll(/<script[\s\S]*?<\/script>/gi, '')
+    .replaceAll(/<[^>]+>/g, '')
+    .trim();
+  const bodyTextLength = scriptStripped.length;
+  const hasMinimalBody = bodyTextLength < 200 && indicators.length >= 1;
+
+  if (isLikelySPA || hasMinimalBody) {
+    issues.push({
+      code: 'spa_rendering',
+      severity: 'P2' as const,
+      category: 'SEO' as const,
+      title: 'Site appears to use client-side rendering',
+      whyItMatters:
+        'Search engines may not fully execute JavaScript, meaning your content could be invisible to crawlers. Client-rendered content can also hurt Core Web Vitals and initial load performance.',
+      howToFix:
+        'Consider using Server-Side Rendering (SSR) or Static Site Generation (SSG) with frameworks like Next.js, Nuxt, or SvelteKit. For existing SPAs, implement pre-rendering or dynamic rendering for search engine bots.',
+      evidence: {
+        url: result.url,
+        wordCount: result.wordCount ?? 0,
+        bodyTextLength,
+        indicators,
+      },
+      impact: 4,
+      effort: 4,
+    });
+  }
+
+  return issues;
+}

@@ -22,22 +22,39 @@ export interface A11yResult {
   error?: string;
 }
 
+export interface A11yCheckOptions {
+  viewport?: { width: number; height: number };
+  userAgent?: string;
+}
+
 /**
  * Run accessibility checks on a URL using axe-core
  */
 export async function checkAccessibility(
   url: string,
-  browser?: Browser
+  browserOrOptions?: Browser | A11yCheckOptions,
+  options?: A11yCheckOptions
 ): Promise<A11yResult> {
-  const ownBrowser = !browser;
-  if (!browser) {
-    browser = await chromium.launch({
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
-    });
+  // Support both (url, browser) and (url, options) and (url, browser, options)
+  let browser: Browser | undefined;
+  let opts: A11yCheckOptions = {};
+  if (browserOrOptions && 'newPage' in browserOrOptions) {
+    browser = browserOrOptions;
+    opts = options ?? {};
+  } else if (browserOrOptions) {
+    opts = browserOrOptions;
   }
 
-  const page = await browser.newPage();
+  const ownBrowser = !browser;
+  browser ??= await chromium.launch({
+    headless: true,
+    args: ['--no-sandbox', '--disable-setuid-sandbox'],
+  });
+
+  const page = await browser.newPage({
+    ...(opts.viewport ? { viewport: opts.viewport } : {}),
+    ...(opts.userAgent ? { userAgent: opts.userAgent } : {}),
+  });
 
   try {
     await page.goto(url, {

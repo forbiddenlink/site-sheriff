@@ -23,6 +23,26 @@ export async function GET(request: NextRequest, context: RouteContext) {
       throw scanError;
     }
 
+    // Get previous scan for trend comparison
+    let previousScan: { score: number; createdAt: string } | null = null;
+    if (scanRun.status === 'SUCCEEDED' && scanRun.normalizedUrl) {
+      const { data: prevScans } = await supabaseAdmin
+        .from('ScanRun')
+        .select('summary, createdAt')
+        .eq('normalizedUrl', scanRun.normalizedUrl)
+        .eq('status', 'SUCCEEDED')
+        .neq('id', id)
+        .order('createdAt', { ascending: false })
+        .limit(1);
+
+      if (prevScans && prevScans.length > 0 && prevScans[0].summary?.overallScore != null) {
+        previousScan = {
+          score: prevScans[0].summary.overallScore,
+          createdAt: prevScans[0].createdAt,
+        };
+      }
+    }
+
     // Get issues (ordered by severity asc, createdAt asc)
     const { data: issues } = await supabaseAdmin
       .from('Issue')
@@ -48,6 +68,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
       createdAt: scanRun.createdAt,
       updatedAt: scanRun.updatedAt,
       error: scanRun.error,
+      previousScan,
       issues: issues ?? [],
       pages: pages ?? [],
     });

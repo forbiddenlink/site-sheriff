@@ -2,7 +2,7 @@ import { supabaseAdmin } from '../supabase-server';
 import { Crawler, type CrawlResult } from './crawler';
 import { checkLinks, findBrokenLinks, findRedirectChains } from './link-checker';
 import { checkAccessibility, mapImpactToSeverity } from './a11y-checker';
-import { checkSEO, checkDuplicates, checkStructuredData } from './seo-checker';
+import { checkSEO, checkDuplicates, checkStructuredData, checkSPARendering } from './seo-checker';
 import { checkPerformance } from './perf-checker';
 import { checkSecurity, checkSecurityTxt } from './security-checker';
 import { checkCompression } from './compression-checker';
@@ -130,6 +130,12 @@ export async function runScan(ctx: ScanContext): Promise<void> {
         const structuredDataIssues = checkStructuredData(result);
         allIssues.push(...structuredDataIssues);
       }
+    }
+
+    // SPA detection on homepage (first crawl result)
+    if (crawlResults.length > 0 && !crawlResults[0].error) {
+      const spaIssues = checkSPARendering(crawlResults[0]);
+      allIssues.push(...spaIssues);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -283,6 +289,42 @@ export async function runScan(ctx: ScanContext): Promise<void> {
           console.warn(`Accessibility check failed for ${page.url}:`, error_);
         }
       }
+
+      // Mobile viewport a11y check (homepage only)
+      const homepageA11y = crawlResults[0];
+      if (homepageA11y && !homepageA11y.error) {
+        try {
+          const mobileA11y = await checkAccessibility(homepageA11y.url, {
+            viewport: { width: 375, height: 812 },
+            userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+          });
+
+          // Only report violations that are NEW in mobile (not already found in desktop)
+          const desktopCodes = new Set(allIssues.filter(i => i.category === 'ACCESSIBILITY').map(i => i.code));
+          for (const violation of mobileA11y.violations) {
+            const code = `a11y_mobile_${violation.id}`;
+            if (!desktopCodes.has(`a11y_${violation.id}`)) {
+              allIssues.push({
+                code,
+                severity: mapImpactToSeverity(violation.impact),
+                category: 'ACCESSIBILITY',
+                title: `[Mobile] ${violation.help}`,
+                whyItMatters: `This accessibility issue appears only at mobile viewport sizes. ${violation.description}`,
+                howToFix: `See ${violation.helpUrl} for guidance. Ensure responsive layouts maintain accessibility.`,
+                evidence: {
+                  url: homepageA11y.url,
+                  viewport: '375x812 (mobile)',
+                  nodes: violation.nodes.slice(0, 3),
+                },
+                impact: impactToScore(violation.impact),
+                effort: 2,
+              });
+            }
+          }
+        } catch (error_) {
+          console.warn('Mobile accessibility check failed:', error_);
+        }
+      }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -412,6 +454,76 @@ export async function runScan(ctx: ScanContext): Promise<void> {
             impact: 3,
             effort: 3,
           });
+        }
+      }
+
+      // Mobile viewport perf check (homepage only)
+      const homepagePerf = crawlResults[0];
+      if (homepagePerf && !homepagePerf.error) {
+        try {
+          const mobilePerf = await checkPerformance(homepagePerf.url, {
+            viewport: { width: 375, height: 812 },
+            userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+          });
+          const mm = mobilePerf.metrics;
+
+          if (mm.firstContentfulPaint !== null && mm.firstContentfulPaint > 3000) {
+            allIssues.push({
+              code: 'mobile_slow_fcp',
+              severity: 'P1',
+              category: 'PERFORMANCE',
+              title: `[Mobile] Slow First Contentful Paint (${mm.firstContentfulPaint}ms)`,
+              whyItMatters: 'Mobile devices typically have slower processors and network connections. A slow FCP on mobile means most of your users see a blank screen for too long.',
+              howToFix: 'Optimize critical rendering path for mobile. Reduce CSS/JS payloads, use responsive images, and consider AMP or lighter mobile alternatives.',
+              evidence: { url: homepagePerf.url, fcp: mm.firstContentfulPaint, viewport: '375x812 (mobile)' },
+              impact: 4,
+              effort: 3,
+            });
+          }
+
+          if (mm.largestContentfulPaint !== null && mm.largestContentfulPaint > 4000) {
+            allIssues.push({
+              code: 'mobile_slow_lcp',
+              severity: 'P1',
+              category: 'PERFORMANCE',
+              title: `[Mobile] Slow Largest Contentful Paint (${mm.largestContentfulPaint}ms)`,
+              whyItMatters: 'Mobile LCP above 4s is rated poor by Core Web Vitals. Over 60% of web traffic is mobile — this directly impacts your largest audience.',
+              howToFix: 'Serve appropriately sized images for mobile, use srcset/sizes attributes, preload hero images, and reduce server response time.',
+              evidence: { url: homepagePerf.url, lcp: mm.largestContentfulPaint, viewport: '375x812 (mobile)' },
+              impact: 5,
+              effort: 3,
+            });
+          }
+
+          if (mm.cumulativeLayoutShift !== null && mm.cumulativeLayoutShift > 0.25) {
+            allIssues.push({
+              code: 'mobile_poor_cls',
+              severity: 'P1',
+              category: 'PERFORMANCE',
+              title: `[Mobile] Poor Cumulative Layout Shift (${mm.cumulativeLayoutShift})`,
+              whyItMatters: 'Layout shifts are especially disruptive on mobile where the viewport is small. Elements jumping around causes accidental taps and frustration.',
+              howToFix: 'Set explicit dimensions on images/ads, avoid dynamically inserted content above the fold, and use CSS contain on mobile layouts.',
+              evidence: { url: homepagePerf.url, cls: mm.cumulativeLayoutShift, viewport: '375x812 (mobile)' },
+              impact: 4,
+              effort: 2,
+            });
+          }
+
+          if (mm.loadTime !== null && mm.loadTime > 8000) {
+            allIssues.push({
+              code: 'mobile_slow_load',
+              severity: 'P2',
+              category: 'PERFORMANCE',
+              title: `[Mobile] Very slow page load (${mm.loadTime}ms)`,
+              whyItMatters: 'Mobile pages that take over 8 seconds to load have extremely high bounce rates. Google uses mobile page speed as a ranking factor.',
+              howToFix: 'Reduce total page weight for mobile, enable compression, lazy load below-fold content, and consider a mobile-specific optimization strategy.',
+              evidence: { url: homepagePerf.url, loadTime: mm.loadTime, viewport: '375x812 (mobile)' },
+              impact: 3,
+              effort: 3,
+            });
+          }
+        } catch (error_) {
+          console.warn('Mobile performance check failed:', error_);
         }
       }
     } else if (settings.includePerformance && crawler.isFetchMode) {

@@ -53,6 +53,10 @@ interface ScanData {
     title: string | null;
     screenshotPath?: string | null;
   }>;
+  previousScan?: {
+    score: number;
+    createdAt: string;
+  } | null;
   error?: string;
   clientEmailDraft?: string | null;
   createdAt: string;
@@ -220,7 +224,12 @@ export default function ScanPage() {
   };
 
   const handleDownloadPDF = () => {
-    globalThis.print();
+    // Expand all issues so they appear in the PDF
+    if (data?.issues) {
+      setExpandedIssues(new Set(data.issues.map((i: { id: string }) => i.id)));
+    }
+    // Small delay to let React re-render expanded issues
+    setTimeout(() => globalThis.print(), 100);
   };
 
   useEffect(() => {
@@ -299,12 +308,81 @@ export default function ScanPage() {
     <main className="min-h-screen bg-[#030712] p-8 lg:p-12 selection:bg-emerald-500/30">
       <style jsx global>{`
         @media print {
-          body { background: white !important; color: black !important; }
+          @page {
+            size: A4;
+            margin: 1.5cm 2cm;
+          }
+          html, body {
+            background: white !important;
+            color: #111 !important;
+            font-size: 11pt !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
           .no-print { display: none !important; }
-          * { color: black !important; border-color: #e5e7eb !important; background: white !important; }
+          main {
+            padding: 0 !important;
+            min-height: auto !important;
+            background: white !important;
+          }
+          /* Reset dark colours */
+          h1, h2, h3, h4, p, span, div, pre {
+            color: #111 !important;
+          }
+          /* Score ring needs colour */
+          svg text { fill: #111 !important; }
+          svg circle { stroke: #d1d5db !important; }
+          svg .score-arc { stroke: #10b981 !important; }
+          /* Cards become bordered boxes */
+          .bg-white\\/2, [class*="backdrop-blur"] {
+            background: white !important;
+            border: 1px solid #e5e7eb !important;
+            backdrop-filter: none !important;
+          }
+          /* Score badges keep colour */
+          .bg-emerald-500\\/10 { background: #d1fae5 !important; }
+          .bg-red-500\\/10 { background: #fee2e2 !important; }
+          .bg-amber-500\\/10 { background: #fef3c7 !important; }
+          .text-emerald-400, .text-emerald-500 { color: #059669 !important; }
+          .text-red-400, .text-red-500 { color: #dc2626 !important; }
+          .text-amber-400, .text-amber-500 { color: #d97706 !important; }
+          /* Severity badges */
+          [class*="bg-red-500"] { background: #fee2e2 !important; color: #dc2626 !important; }
+          [class*="bg-amber-500"] { background: #fef3c7 !important; color: #d97706 !important; }
+          [class*="bg-blue-500"] { background: #dbeafe !important; color: #2563eb !important; }
+          [class*="bg-slate-500"] { background: #f1f5f9 !important; color: #475569 !important; }
+          /* Grey text lighter for less important info */
+          .text-slate-500, .text-slate-400, .text-xs.font-mono { color: #6b7280 !important; }
+          /* Evidence boxes */
+          .font-mono.text-xs { font-size: 9pt !important; }
+          /* Force expand all issues for print */
+          .divide-y > div { break-inside: avoid; }
+          /* Hide screenshots in print */
+          img[alt*="Screenshot"] { display: none !important; }
+          /* Lightbox */
+          .fixed { display: none !important; }
+          /* Page break before major sections */
+          .mb-20 { margin-bottom: 1cm !important; break-before: auto; }
+          /* Print header */
+          .print-header { display: block !important; }
         }
+        .print-header { display: none; }
       `}</style>
       <div className="max-w-5xl mx-auto">
+        {/* Print-only header */}
+        <div className="print-header mb-8 pb-4 border-b-2 border-gray-200">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-2xl font-bold">Site Sheriff — Website Audit Report</h1>
+              <p className="text-sm text-gray-500 mt-1">{data?.inputUrl}</p>
+            </div>
+            <div className="text-right text-sm text-gray-500">
+              <p>Generated {data?.createdAt ? new Date(data.createdAt + 'Z').toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : ''}</p>
+              <p>site-sheriff.vercel.app</p>
+            </div>
+          </div>
+        </div>
+
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-12">
           <div>
@@ -407,6 +485,29 @@ export default function ScanPage() {
                     System Health
                  </h2>
                  <ScoreRing score={data.summary.overallScore} size={160} />
+                 {data.previousScan && (
+                   <div className="mt-4 flex items-center gap-2">
+                     {(() => {
+                       const delta = data.summary.overallScore - data.previousScan.score;
+                       if (delta > 0) return (
+                         <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                           ↑ {delta} pts
+                         </span>
+                       );
+                       if (delta < 0) return (
+                         <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold bg-red-500/10 text-red-400 border border-red-500/20">
+                           ↓ {Math.abs(delta)} pts
+                         </span>
+                       );
+                       return (
+                         <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold bg-slate-500/10 text-slate-400 border border-slate-500/20">
+                           → No change
+                         </span>
+                       );
+                     })()}
+                     <span className="text-[10px] text-slate-500">vs previous scan</span>
+                   </div>
+                 )}
               </div>
               
               {/* Category Matrix */}
@@ -475,6 +576,77 @@ export default function ScanPage() {
                 </div>
               </div>
             )}
+
+            {/* Priority Action Matrix — Quick Wins */}
+            {(() => {
+              const quickWins = data.issues
+                .filter((i: { effort: number | null; impact: number | null; severity: string }) =>
+                  i.effort !== null && i.effort <= 2 && (i.severity === 'P0' || i.severity === 'P1' || i.severity === 'P2')
+                )
+                .sort((a: { impact: number | null; effort: number | null }, b: { impact: number | null; effort: number | null }) => {
+                  // Sort by impact desc, then effort asc
+                  const impactDiff = (b.impact ?? 0) - (a.impact ?? 0);
+                  if (impactDiff !== 0) return impactDiff;
+                  return (a.effort ?? 5) - (b.effort ?? 5);
+                })
+                .slice(0, 5);
+
+              if (quickWins.length === 0) return null;
+
+              return (
+                <div className="bg-linear-to-br from-emerald-500/5 to-transparent border border-emerald-500/10 backdrop-blur-md rounded-3xl p-8 mb-8">
+                  <div className="flex items-center gap-3 mb-6">
+                    <div className="w-8 h-8 rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
+                      <svg className="w-4 h-4 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                      </svg>
+                    </div>
+                    <div>
+                      <h2 className="text-sm font-medium text-white tracking-wide">Quick Wins</h2>
+                      <p className="text-[10px] text-slate-500 uppercase tracking-widest">High impact, low effort fixes to do first</p>
+                    </div>
+                  </div>
+                  <div className="space-y-3">
+                    {quickWins.map((issue: { id: string; title: string; severity: string; category: string; impact: number | null; effort: number | null }, idx: number) => (
+                      <button
+                        key={issue.id}
+                        type="button"
+                        className="w-full text-left flex items-start gap-4 p-4 rounded-2xl bg-white/2 border border-white/4 hover:bg-white/4 hover:border-white/8 transition-all group cursor-pointer"
+                        onClick={() => {
+                          setExpandedIssues((prev) => {
+                            const next = new Set(prev);
+                            next.add(issue.id);
+                            return next;
+                          });
+                          // Scroll to the issue
+                          setTimeout(() => {
+                            document.getElementById(`issue-${issue.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                          }, 100);
+                        }}
+                      >
+                        <span className="text-sm font-bold text-emerald-500/40 group-hover:text-emerald-400 transition-colors mt-0.5">
+                          {idx + 1}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <SeverityBadge severity={issue.severity} />
+                            <h3 className="text-sm font-medium text-slate-200 truncate">{issue.title}</h3>
+                          </div>
+                          <div className="flex items-center gap-3 text-[10px] font-mono text-slate-500">
+                            <span>IMPACT: {issue.impact}/5</span>
+                            <span>•</span>
+                            <span>EFFORT: {issue.effort === 1 ? 'Quick fix' : 'Easy'}</span>
+                          </div>
+                        </div>
+                        <svg className="w-4 h-4 text-slate-500 group-hover:text-emerald-400 transition-colors mt-1 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                        </svg>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Issues list (The Ghost Rows) */}
             <div className="bg-white/2 border border-white/6 backdrop-blur-md rounded-3xl overflow-hidden mb-20">
@@ -565,7 +737,7 @@ export default function ScanPage() {
                   {filteredIssues.map((issue) => {
                     const isExpanded = expandedIssues.has(issue.id);
                     return (
-                      <div key={issue.id} className="hover:bg-white/2 transition-colors duration-300 group">
+                      <div key={issue.id} id={`issue-${issue.id}`} className="hover:bg-white/2 transition-colors duration-300 group">
                         <button
                           type="button"
                           className="p-6 sm:p-8 cursor-pointer select-none w-full text-left"
