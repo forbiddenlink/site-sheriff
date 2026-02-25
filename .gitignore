@@ -59,3 +59,7 @@ Thumbs.db
 .codacy/
 .github/instructions/codacy.instructions.md
 .playwright-mcp/
+
+# Local development
+.claude/
+thoughts/
