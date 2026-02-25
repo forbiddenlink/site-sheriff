@@ -620,3 +620,242 @@ export function checkSPARendering(result: CrawlResult): Array<{
 
   return issues;
 }
+
+/**
+ * Validate that og:image and twitter:image URLs actually resolve to valid images.
+ * This is a cross-page check that deduplicates image URLs before checking.
+ */
+export async function validateOgImages(results: CrawlResult[]): Promise<Array<{
+  code: string;
+  severity: 'P0' | 'P1' | 'P2' | 'P3';
+  category: 'SEO';
+  title: string;
+  whyItMatters: string;
+  howToFix: string;
+  evidence: object;
+  impact: number;
+  effort: number;
+}>> {
+  const issues: Array<{
+    code: string;
+    severity: 'P0' | 'P1' | 'P2' | 'P3';
+    category: 'SEO';
+    title: string;
+    whyItMatters: string;
+    howToFix: string;
+    evidence: object;
+    impact: number;
+    effort: number;
+  }> = [];
+
+  // Collect unique image URLs and track which pages reference them
+  const imageUrlToPages = new Map<string, string[]>();
+  for (const result of results) {
+    if (result.error) continue;
+    const ogImage = result.ogTags['og:image'];
+    const twitterImage = result.ogTags['twitter:image'];
+    for (const imgUrl of [ogImage, twitterImage]) {
+      if (imgUrl?.startsWith('http')) {
+        if (!imageUrlToPages.has(imgUrl)) imageUrlToPages.set(imgUrl, []);
+        imageUrlToPages.get(imgUrl)!.push(result.url);
+      }
+    }
+  }
+
+  const uniqueUrls = Array.from(imageUrlToPages.keys());
+  const BATCH_SIZE = 5;
+
+  for (let i = 0; i < uniqueUrls.length; i += BATCH_SIZE) {
+    const batch = uniqueUrls.slice(i, i + BATCH_SIZE);
+    const batchResults = await Promise.allSettled(
+      batch.map(async (imgUrl) => {
+        const pages = imageUrlToPages.get(imgUrl)!;
+        const pageUrl = pages[0];
+
+        let response: Response | null = null;
+        let errorMessage: string | null = null;
+
+        // Try HEAD first, fall back to GET
+        for (const method of ['HEAD', 'GET'] as const) {
+          try {
+            response = await fetch(imgUrl, {
+              method,
+              signal: AbortSignal.timeout(5000),
+              headers: { 'User-Agent': 'SiteSheriffBot/1.0' },
+              redirect: 'follow',
+            });
+            break;
+          } catch (err) {
+            errorMessage = err instanceof Error ? err.message : String(err);
+            if (method === 'HEAD') {
+              // HEAD failed, try GET
+              continue;
+            }
+          }
+        }
+
+        if (!response) {
+          // Both HEAD and GET failed
+          issues.push({
+            code: 'og_image_broken',
+            severity: 'P1',
+            category: 'SEO',
+            title: `Open Graph image returns error`,
+            whyItMatters:
+              'The og:image URL does not resolve to a valid image. When this page is shared on social media, it will show a broken or missing preview image.',
+            howToFix:
+              'Fix the image URL or upload the image to the correct location. Verify the URL is accessible publicly (not behind auth).',
+            evidence: { url: pageUrl, ogImageUrl: imgUrl, httpStatus: null, error: errorMessage },
+            impact: 4,
+            effort: 1,
+          });
+          return;
+        }
+
+        if (response.status >= 400) {
+          issues.push({
+            code: 'og_image_broken',
+            severity: 'P1',
+            category: 'SEO',
+            title: `Open Graph image returns ${response.status}`,
+            whyItMatters:
+              'The og:image URL does not resolve to a valid image. When this page is shared on social media, it will show a broken or missing preview image.',
+            howToFix:
+              'Fix the image URL or upload the image to the correct location. Verify the URL is accessible publicly (not behind auth).',
+            evidence: { url: pageUrl, ogImageUrl: imgUrl, httpStatus: response.status, error: null },
+            impact: 4,
+            effort: 1,
+          });
+          return;
+        }
+
+        // Check Content-Type for 200 responses
+        const contentType = response.headers.get('content-type') ?? '';
+        if (!contentType.startsWith('image/')) {
+          issues.push({
+            code: 'og_image_not_image',
+            severity: 'P2',
+            category: 'SEO',
+            title: 'Open Graph image URL is not an image',
+            whyItMatters:
+              'The og:image URL points to a resource that is not an image file. Social media platforms may not display it correctly.',
+            howToFix:
+              'Ensure the og:image URL points to an actual image file (JPEG, PNG, WebP).',
+            evidence: { url: pageUrl, ogImageUrl: imgUrl, contentType },
+            impact: 3,
+            effort: 1,
+          });
+        }
+      }),
+    );
+
+    // Log any unexpected rejections (shouldn't happen since we catch inside)
+    for (const r of batchResults) {
+      if (r.status === 'rejected') {
+        console.warn('OG image validation batch error:', r.reason);
+      }
+    }
+  }
+
+  return issues;
+}
+
+/**
+ * Validate that canonical URLs actually resolve and point to the correct domain.
+ * This is a cross-page check that deduplicates canonical URLs before checking.
+ */
+export async function validateCanonicals(results: CrawlResult[]): Promise<SEOIssue[]> {
+  const issues: SEOIssue[] = [];
+
+  // Collect unique canonical URLs and track which pages reference them
+  const canonicalToPages = new Map<string, string[]>();
+  for (const result of results) {
+    if (result.error) continue;
+    if (result.canonical?.startsWith('http')) {
+      if (!canonicalToPages.has(result.canonical)) canonicalToPages.set(result.canonical, []);
+      canonicalToPages.get(result.canonical)!.push(result.url);
+    }
+  }
+
+  for (const [canonicalUrl, pages] of canonicalToPages) {
+    const pageUrl = pages[0];
+
+    // Check for cross-domain canonical
+    try {
+      const pageDomain = new URL(pageUrl).hostname;
+      const canonicalDomain = new URL(canonicalUrl).hostname;
+      if (canonicalDomain !== pageDomain) {
+        issues.push({
+          code: 'canonical_cross_domain',
+          severity: 'P2',
+          category: 'SEO',
+          title: 'Cross-domain canonical URL',
+          whyItMatters:
+            'A canonical pointing to a different domain tells search engines this page is a copy of content on another site. This may be intentional (syndication) but is often a misconfiguration that gives away your ranking credit.',
+          howToFix:
+            'Verify this is intentional. If not, update the canonical to point to your own domain.',
+          evidence: { url: pageUrl, actual: canonicalUrl, expected: pageDomain, snippet: `Page domain: ${pageDomain}, Canonical domain: ${canonicalDomain}` },
+          impact: 4,
+          effort: 1,
+        });
+      }
+    } catch {
+      // Invalid URL — skip cross-domain check
+    }
+
+    // Verify canonical URL resolves
+    try {
+      let response: Response | null = null;
+      let errorMessage: string | null = null;
+
+      for (const method of ['HEAD', 'GET'] as const) {
+        try {
+          response = await fetch(canonicalUrl, {
+            method,
+            signal: AbortSignal.timeout(5000),
+            headers: { 'User-Agent': 'SiteSheriffBot/1.0' },
+            redirect: 'follow',
+          });
+          break;
+        } catch (err) {
+          errorMessage = err instanceof Error ? err.message : String(err);
+          if (method === 'HEAD') continue;
+        }
+      }
+
+      if (!response) {
+        issues.push({
+          code: 'canonical_url_broken',
+          severity: 'P1',
+          category: 'SEO',
+          title: 'Canonical URL returns error',
+          whyItMatters:
+            'A broken canonical URL tells search engines to index a page that doesn\'t exist, wasting crawl budget and confusing indexing.',
+          howToFix:
+            'Fix the canonical URL to point to a valid, accessible page, or remove it to let search engines determine the canonical.',
+          evidence: { url: pageUrl, actual: canonicalUrl, expected: 'HTTP 200', snippet: errorMessage ?? 'Connection error' },
+          impact: 5,
+          effort: 1,
+        });
+      } else if (response.status >= 400) {
+        issues.push({
+          code: 'canonical_url_broken',
+          severity: 'P1',
+          category: 'SEO',
+          title: `Canonical URL returns ${response.status}`,
+          whyItMatters:
+            'A broken canonical URL tells search engines to index a page that doesn\'t exist, wasting crawl budget and confusing indexing.',
+          howToFix:
+            'Fix the canonical URL to point to a valid, accessible page, or remove it to let search engines determine the canonical.',
+          evidence: { url: pageUrl, actual: canonicalUrl, expected: 'HTTP 200', snippet: `HTTP ${response.status}` },
+          impact: 5,
+          effort: 1,
+        });
+      }
+    } catch {
+      // Network error — skip silently
+    }
+  }
+
+  return issues;
+}

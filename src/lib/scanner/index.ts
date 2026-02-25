@@ -2,9 +2,9 @@ import { supabaseAdmin } from '../supabase-server';
 import { Crawler, type CrawlResult } from './crawler';
 import { checkLinks, findBrokenLinks, findRedirectChains } from './link-checker';
 import { checkAccessibility, mapImpactToSeverity } from './a11y-checker';
-import { checkSEO, checkDuplicates, checkStructuredData, checkSPARendering } from './seo-checker';
+import { checkSEO, checkDuplicates, checkStructuredData, checkSPARendering, validateOgImages, validateCanonicals } from './seo-checker';
 import { checkPerformance } from './perf-checker';
-import { checkSecurity, checkSecurityTxt } from './security-checker';
+import { checkSecurity, checkSecurityTxt, checkHttpsRedirect } from './security-checker';
 import { checkCompression } from './compression-checker';
 import { checkRobotsSitemap } from './robots-checker';
 import { detectTechnologies } from './tech-detector';
@@ -178,12 +178,12 @@ export async function runScan(ctx: ScanContext): Promise<void> {
 
     // ─────────────────────────────────────────────────────────────────────────
     // Phase 2b: Security checks
+    //   Security headers are typically site-wide — check homepage only to avoid duplicate issues
     // ─────────────────────────────────────────────────────────────────────────
-    for (const result of crawlResults) {
-      if (!result.error) {
-        const securityIssues = checkSecurity(result);
-        allIssues.push(...securityIssues);
-      }
+    const firstGoodResult = crawlResults.find((r) => !r.error);
+    if (firstGoodResult) {
+      const securityIssues = checkSecurity(firstGoodResult);
+      allIssues.push(...securityIssues);
     }
 
     // Check security.txt (once per scan)
@@ -194,12 +194,24 @@ export async function runScan(ctx: ScanContext): Promise<void> {
       console.warn('security.txt check failed');
     }
 
+    // HTTPS redirect check
+    if (normalizedUrl.startsWith('https://')) {
+      try {
+        const httpsIssues = await checkHttpsRedirect(normalizedUrl);
+        allIssues.push(...httpsIssues);
+      } catch {
+        console.warn('HTTPS redirect check failed');
+      }
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // Phase 2c: Robots.txt and sitemap checks
     // ─────────────────────────────────────────────────────────────────────────
+    let sitemapUrls: string[] = [];
     try {
-      const robotsIssues = await checkRobotsSitemap(normalizedUrl);
-      allIssues.push(...robotsIssues);
+      const robotsResult = await checkRobotsSitemap(normalizedUrl);
+      allIssues.push(...robotsResult.issues);
+      sitemapUrls = robotsResult.sitemapUrls;
     } catch {
       console.warn('Robots/sitemap check failed');
     }
@@ -216,6 +228,22 @@ export async function runScan(ctx: ScanContext): Promise<void> {
     if (crawlResults.length > 1) {
       const dupeIssues = checkDuplicates(crawlResults);
       allIssues.push(...dupeIssues);
+    }
+
+    // Validate OG image URLs actually resolve
+    try {
+      const ogImageIssues = await validateOgImages(crawlResults);
+      allIssues.push(...ogImageIssues);
+    } catch {
+      console.warn('OG image validation failed');
+    }
+
+    // Validate canonical URLs actually resolve
+    try {
+      const canonicalIssues = await validateCanonicals(crawlResults);
+      allIssues.push(...canonicalIssues);
+    } catch {
+      console.warn('Canonical URL validation failed');
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -238,6 +266,83 @@ export async function runScan(ctx: ScanContext): Promise<void> {
       allIssues.push(...compressionIssues);
     } catch {
       console.warn('Compression check failed');
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Phase 2f: Sitemap ↔ crawl cross-reference
+    // ─────────────────────────────────────────────────────────────────────────
+    try {
+      if (sitemapUrls.length > 0) {
+        // Helper to normalize URLs for comparison
+        const normalizeForCompare = (u: string): string => {
+          try {
+            const parsed = new URL(u);
+            return (parsed.origin + parsed.pathname).replace(/\/+$/, '').toLowerCase();
+          } catch {
+            return u.replace(/\/+$/, '').toLowerCase();
+          }
+        };
+
+        const sitemapNormalized = new Set(sitemapUrls.map(normalizeForCompare));
+        const crawledMap = new Map<string, { url: string; statusCode: number; error?: string }>();
+        for (const r of crawlResults) {
+          crawledMap.set(normalizeForCompare(r.url), {
+            url: r.url,
+            statusCode: r.statusCode,
+            error: r.error,
+          });
+        }
+
+        // (a) Sitemap URLs that were crawled and returned error status
+        for (const smUrl of sitemapUrls) {
+          const norm = normalizeForCompare(smUrl);
+          const crawled = crawledMap.get(norm);
+          if (crawled && crawled.statusCode >= 400) {
+            allIssues.push({
+              code: 'sitemap_url_broken',
+              severity: 'P1',
+              category: 'SEO',
+              title: `Sitemap URL returns ${crawled.statusCode}`,
+              whyItMatters:
+                'URLs in your sitemap should be valid, indexable pages. Broken URLs waste search engine crawl budget and signal a poorly maintained site.',
+              howToFix:
+                'Remove the broken URL from your sitemap.xml, or fix the page so it returns a 200 status.',
+              evidence: {
+                url: crawled.url,
+                httpStatus: crawled.statusCode,
+                sitemapUrl: smUrl,
+              },
+              impact: 4,
+              effort: 1,
+            });
+          }
+        }
+
+        // (c) Crawled pages missing from sitemap (status 200-399, not the homepage)
+        const homepageNormalized = normalizeForCompare(normalizedUrl);
+        for (const result of crawlResults) {
+          if (result.error || result.statusCode < 200 || result.statusCode >= 400) continue;
+          const norm = normalizeForCompare(result.url);
+          if (norm === homepageNormalized) continue;
+          if (!sitemapNormalized.has(norm)) {
+            allIssues.push({
+              code: 'page_not_in_sitemap',
+              severity: 'P3',
+              category: 'SEO',
+              title: 'Crawled page not found in sitemap',
+              whyItMatters:
+                'Pages accessible on your site but missing from the sitemap may be discovered more slowly by search engines.',
+              howToFix:
+                'Add this page to your sitemap.xml if it should be indexed.',
+              evidence: { url: result.url },
+              impact: 2,
+              effort: 1,
+            });
+          }
+        }
+      }
+    } catch {
+      console.warn('Sitemap cross-reference check failed');
     }
 
     // ─────────────────────────────────────────────────────────────────────────

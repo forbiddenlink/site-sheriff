@@ -275,3 +275,75 @@ export async function checkSecurityTxt(baseUrl: string): Promise<SecurityIssue[]
 
   return issues;
 }
+
+/**
+ * Check if the HTTP version of a site properly redirects to HTTPS.
+ * Only meaningful when the base URL uses HTTPS.
+ */
+export async function checkHttpsRedirect(baseUrl: string): Promise<SecurityIssue[]> {
+  const issues: SecurityIssue[] = [];
+
+  if (!baseUrl.startsWith('https://')) return issues;
+
+  try {
+    const origin = new URL(baseUrl).origin;
+    const httpUrl = origin.replace('https://', 'http://');
+
+    const response = await fetch(httpUrl, {
+      redirect: 'manual',
+      headers: { 'User-Agent': 'SiteSheriffBot/1.0' },
+      signal: AbortSignal.timeout(5000),
+    });
+
+    const status = response.status;
+    const location = response.headers.get('location') ?? '';
+    const isRedirect = [301, 302, 307, 308].includes(status);
+
+    if (isRedirect && location.startsWith('https://')) {
+      // Good — HTTP redirects to HTTPS
+      return issues;
+    }
+
+    if (status === 200) {
+      issues.push({
+        code: 'no_https_redirect',
+        severity: 'P1',
+        category: 'SECURITY',
+        title: 'HTTP does not redirect to HTTPS',
+        whyItMatters:
+          'Users accessing your site over HTTP are not automatically redirected to the secure HTTPS version, leaving them vulnerable to man-in-the-middle attacks.',
+        howToFix:
+          'Configure your server/hosting to redirect all HTTP requests to HTTPS with a 301 redirect.',
+        evidence: {
+          url: httpUrl,
+          expected: '301 redirect to HTTPS',
+          actual: 'HTTP 200 (serves content)',
+        },
+        impact: 5,
+        effort: 1,
+      });
+    } else if (isRedirect && !location.startsWith('https://')) {
+      issues.push({
+        code: 'http_redirect_not_https',
+        severity: 'P2',
+        category: 'SECURITY',
+        title: 'HTTP redirects but not to HTTPS',
+        whyItMatters:
+          'The HTTP version of your site redirects, but not to the secure HTTPS version. Users are still not getting a secure connection.',
+        howToFix:
+          'Update the redirect to point to the HTTPS version of the URL.',
+        evidence: {
+          url: httpUrl,
+          expected: 'https redirect',
+          actual: `Redirects to: ${location}`,
+        },
+        impact: 4,
+        effort: 1,
+      });
+    }
+  } catch {
+    // Fetch failed entirely (HTTP port may not be open) — skip silently
+  }
+
+  return issues;
+}

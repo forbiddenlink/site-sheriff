@@ -18,8 +18,17 @@ export interface RobotsIssue {
 /**
  * Check robots.txt and sitemap.xml for a site
  */
-export async function checkRobotsSitemap(baseUrl: string): Promise<RobotsIssue[]> {
+export interface RobotsSitemapResult {
+  issues: RobotsIssue[];
+  sitemapUrls: string[];
+}
+
+/**
+ * Check robots.txt and sitemap.xml for a site
+ */
+export async function checkRobotsSitemap(baseUrl: string): Promise<RobotsSitemapResult> {
   const issues: RobotsIssue[] = [];
+  const extractedSitemapUrls: string[] = [];
   const origin = new URL(baseUrl).origin;
 
   // ── robots.txt check ──────────────────────────────────────────────────
@@ -157,9 +166,17 @@ export async function checkRobotsSitemap(baseUrl: string): Promise<RobotsIssue[]
       effort: 2,
     });
   } else {
+    // Extract all <loc> URLs from the sitemap
+    const locMatches = sitemapContent.matchAll(/<loc>\s*(.*?)\s*<\/loc>/g);
+    for (const match of locMatches) {
+      const url = match[1].trim();
+      if (url) {
+        extractedSitemapUrls.push(url);
+      }
+    }
+
     // Validate sitemap has URLs
-    const urlCount = (sitemapContent.match(/<loc>/g) || []).length;
-    if (urlCount === 0) {
+    if (extractedSitemapUrls.length === 0) {
       issues.push({
         code: 'empty_sitemap',
         severity: 'P2',
@@ -174,5 +191,5 @@ export async function checkRobotsSitemap(baseUrl: string): Promise<RobotsIssue[]
     }
   }
 
-  return issues;
+  return { issues, sitemapUrls: extractedSitemapUrls };
 }
