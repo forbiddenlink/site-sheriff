@@ -96,6 +96,47 @@ const features = [
     desc: 'Alt text, duplicates, thin pages',
     accent: 'group-hover:shadow-blue-500/20',
   },
+  {
+    icon: (
+      <svg className="w-7 h-7 text-orange-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0022.5 18.75V5.25A2.25 2.25 0 0020.25 3H3.75A2.25 2.25 0 001.5 5.25v13.5A2.25 2.25 0 003.75 21zM8.25 8.625a1.125 1.125 0 100-2.25 1.125 1.125 0 000 2.25z" />
+      </svg>
+    ),
+    label: 'Images',
+    desc: 'Alt text, sizing, formats',
+    accent: 'group-hover:shadow-orange-500/20',
+  },
+  {
+    icon: (
+      <svg className="w-7 h-7 text-teal-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17.25 6.75L22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3l-4.5 16.5" />
+      </svg>
+    ),
+    label: 'Resources',
+    desc: 'Scripts, bundles, blocking',
+    accent: 'group-hover:shadow-teal-500/20',
+  },
+  {
+    icon: (
+      <svg className="w-7 h-7 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 6.75V15m6-6v8.25m.503-8.914l-2.253 1.69m0 0l-2.253-1.69M12.75 9.826l2.253 1.69M12.75 9.826V6.75m-2.253 4.766L8.244 9.826M10.497 11.516V15m0-3.484l2.253 1.69" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12.75 3v3.75m0 0h3.75m-3.75 0H9M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+      </svg>
+    ),
+    label: 'Robots & Sitemap',
+    desc: 'Robots.txt, XML sitemap',
+    accent: 'group-hover:shadow-indigo-500/20',
+  },
+  {
+    icon: (
+      <svg className="w-7 h-7 text-lime-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7.217 10.907a2.25 2.25 0 100 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186l9.566-5.314m-9.566 7.5l9.566 5.314m0 0a2.25 2.25 0 103.935 2.186 2.25 2.25 0 00-3.935-2.186zm0-12.814a2.25 2.25 0 103.933-2.185 2.25 2.25 0 00-3.933 2.185z" />
+      </svg>
+    ),
+    label: 'Internal Linking',
+    desc: 'Orphans, depth, structure',
+    accent: 'group-hover:shadow-lime-500/20',
+  },
 ];
 
 // ── How-It-Works data ───────────────────────────────────────────────────────
@@ -113,7 +154,7 @@ const steps = [
   {
     num: '02',
     title: 'Scans everything',
-    desc: '35+ checks across 6 categories, page by page.',
+    desc: '100+ checks across 10 categories, page by page.',
     icon: (
       <svg className="w-6 h-6 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
@@ -210,15 +251,17 @@ export default function Home() {
             {' '}in 90 seconds
           </h1>
           <p className="text-lg text-slate-400 mb-10 max-w-lg mx-auto lg:mx-0 leading-relaxed font-normal">
-            35+ checks across SEO, security, accessibility, performance, broken
-            links, and content — prioritized, isolated, and explained.
+            100+ checks across SEO, security, accessibility, performance, links,
+            content, images, and more — prioritized, evidence-backed, and explained.
           </p>
 
           {/* URL Input Form */}
           <form onSubmit={handleSubmit} className="w-full">
             <div className="flex flex-col sm:flex-row gap-3">
               <div className="relative flex-1">
+                <label htmlFor="scan-url" className="sr-only">Website URL to scan</label>
                 <input
+                  id="scan-url"
                   type="text"
                   value={url}
                   onChange={(e) => setUrl(e.target.value)}
@@ -379,25 +422,26 @@ export default function Home() {
         </div>
 
         {/* Hero Image */}
-        <div className="relative lg:w-1/2 w-full max-w-lg aspect-square lg:aspect-auto lg:h-150 hidden sm:block">
+        <div className="relative lg:w-1/2 w-full max-w-lg hidden sm:flex items-center justify-center">
           <div className="absolute inset-0 bg-emerald-500/10 rounded-3xl blur-3xl -z-10 mix-blend-screen" />
           <Image
             src="/hero-illustration.png"
             alt="SiteSheriff abstract app interface scan"
-            fill
-            className="object-contain drop-shadow-2xl hover:scale-105 transition-transform duration-700 ease-out rounded-2xl"
+            width={600}
+            height={600}
+            className="rounded-2xl drop-shadow-2xl hover:scale-105 transition-transform duration-700 ease-out w-full h-auto"
             priority
           />
         </div>
       </div>
 
-      {/* ── Features Grid (6 categories – 3 × 2) ───────────────────────── */}
+      {/* ── Features Grid (10 categories – 5 × 2) ──────────────────────── */}
       <section className="w-full max-w-5xl z-10 relative mb-24">
         <h2 className="text-center text-sm font-mono uppercase tracking-widest text-slate-500 mb-10">
           What it checks
         </h2>
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-5">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-5">
           {features.map((f) => (
             <div
               key={f.label}
