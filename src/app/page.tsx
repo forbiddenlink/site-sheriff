@@ -535,7 +535,7 @@ export default function Home() {
         <p className="text-slate-500 text-sm">
           Built for freelancers &amp; agencies
         </p>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-4 flex-wrap justify-center">
           <span className="text-slate-600 text-xs font-mono uppercase tracking-widest">
             SYSTEM_STATUS: ONLINE
           </span>
@@ -554,6 +554,22 @@ export default function Home() {
               />
             </svg>
             GitHub
+          </a>
+          <span className="text-slate-700">·</span>
+          <a
+            href="https://github.com/forbiddenlink/site-sheriff/issues"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs text-slate-500 hover:text-emerald-400 transition-colors font-mono"
+          >
+            Contact
+          </a>
+          <span className="text-slate-700">·</span>
+          <a
+            href="/privacy"
+            className="text-xs text-slate-500 hover:text-emerald-400 transition-colors font-mono"
+          >
+            Privacy
           </a>
         </div>
       </footer>

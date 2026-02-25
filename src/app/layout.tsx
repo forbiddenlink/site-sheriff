@@ -45,18 +45,42 @@ export const metadata: Metadata = {
 
 const jsonLd = {
   '@context': 'https://schema.org',
-  '@type': 'WebApplication',
-  name: 'Site Sheriff',
-  url: siteUrl,
-  description:
-    'Drop a URL, get an instant QA report with 100+ checks across SEO, security, accessibility, performance, and more.',
-  applicationCategory: 'DeveloperApplication',
-  operatingSystem: 'All',
-  offers: {
-    '@type': 'Offer',
-    price: '0',
-    priceCurrency: 'USD',
-  },
+  '@graph': [
+    {
+      '@type': 'WebApplication',
+      '@id': `${siteUrl}/#application`,
+      name: 'Site Sheriff',
+      url: siteUrl,
+      description:
+        'Drop a URL, get an instant QA report with 160+ checks across SEO, security, accessibility, performance, and more.',
+      applicationCategory: 'DeveloperApplication',
+      operatingSystem: 'All',
+      offers: {
+        '@type': 'Offer',
+        price: '0',
+        priceCurrency: 'USD',
+      },
+      publisher: { '@id': `${siteUrl}/#organization` },
+    },
+    {
+      '@type': 'Organization',
+      '@id': `${siteUrl}/#organization`,
+      name: 'Site Sheriff',
+      url: siteUrl,
+      logo: {
+        '@type': 'ImageObject',
+        url: `${siteUrl}/icon.png`,
+      },
+      sameAs: [
+        'https://github.com/forbiddenlink/site-sheriff',
+      ],
+      contactPoint: {
+        '@type': 'ContactPoint',
+        contactType: 'customer support',
+        url: 'https://github.com/forbiddenlink/site-sheriff/issues',
+      },
+    },
+  ],
 };
 
 export default function RootLayout({
@@ -73,6 +97,25 @@ export default function RootLayout({
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
         />
+        <noscript>
+          <div style={{
+            padding: '2rem',
+            textAlign: 'center',
+            backgroundColor: '#1a1a2e',
+            color: '#e4e4e7',
+            minHeight: '100vh',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}>
+            <h1 style={{ fontSize: '1.5rem', marginBottom: '1rem' }}>JavaScript Required</h1>
+            <p style={{ maxWidth: '500px', lineHeight: 1.6 }}>
+              Site Sheriff requires JavaScript to run website audits and display results.
+              Please enable JavaScript in your browser settings to use this application.
+            </p>
+          </div>
+        </noscript>
         {children}
       </body>
     </html>
