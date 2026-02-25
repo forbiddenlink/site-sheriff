@@ -474,6 +474,25 @@ function dedupeIssues<T extends { code: string; evidence: { url?: string } }>(is
   });
 }
 
+// Severity-weighted penalty points per issue
+const SEVERITY_PENALTY: Record<string, number> = { P0: 25, P1: 15, P2: 8, P3: 3 };
+
+/**
+ * Compute the score for a single category based on severity-weighted penalties.
+ * Returns 0-100 where 100 = no issues.
+ */
+function computeCategoryScore(
+  issues: Array<{ severity: string; category: string }>,
+  category: string,
+): number {
+  const catIssues = issues.filter((i) => i.category === category);
+  let penalty = 0;
+  for (const issue of catIssues) {
+    penalty += SEVERITY_PENALTY[issue.severity] ?? 5;
+  }
+  return Math.max(0, 100 - penalty);
+}
+
 function computeSummary(
   issues: Array<{ severity: string; category: string; code: string; title: string }>,
   crawlResults: CrawlResult[],
@@ -488,34 +507,23 @@ function computeSummary(
     P3: issues.filter((i) => i.severity === 'P3').length,
   };
 
-  // Count issues by category
-  const categoryIssues = {
-    seo: issues.filter((i) => i.category === 'SEO').length,
-    accessibility: issues.filter((i) => i.category === 'ACCESSIBILITY').length,
-    performance: issues.filter((i) => i.category === 'PERFORMANCE').length,
-    links: issues.filter((i) => i.category === 'LINKS').length,
-    content: issues.filter((i) => i.category === 'CONTENT').length,
-    security: issues.filter((i) => i.category === 'SECURITY').length,
-  };
-
-  // Compute category scores (100 - penalty)
-  const maxPenalty = 50; // Cap penalty at 50 points per category
+  // Compute category scores using severity-weighted penalties
   const categoryScores = {
-    seo: Math.max(0, 100 - Math.min(categoryIssues.seo * 10, maxPenalty)),
-    accessibility: Math.max(0, 100 - Math.min(categoryIssues.accessibility * 8, maxPenalty)),
-    performance: Math.max(0, 100 - Math.min(categoryIssues.performance * 10, maxPenalty)),
-    links: Math.max(0, 100 - Math.min(categoryIssues.links * 5, maxPenalty)),
-    content: Math.max(0, 100 - Math.min(categoryIssues.content * 10, maxPenalty)),
-    security: Math.max(0, 100 - Math.min(categoryIssues.security * 8, maxPenalty)),
+    seo: computeCategoryScore(issues, 'SEO'),
+    accessibility: computeCategoryScore(issues, 'ACCESSIBILITY'),
+    performance: computeCategoryScore(issues, 'PERFORMANCE'),
+    links: computeCategoryScore(issues, 'LINKS'),
+    content: computeCategoryScore(issues, 'CONTENT'),
+    security: computeCategoryScore(issues, 'SECURITY'),
   };
 
   // Overall score (weighted average — 6 categories)
   const overallScore = Math.round(
-    categoryScores.seo * 0.2 +
+    categoryScores.seo * 0.25 +
     categoryScores.accessibility * 0.2 +
     categoryScores.performance * 0.15 +
     categoryScores.links * 0.1 +
-    categoryScores.content * 0.15 +
+    categoryScores.content * 0.1 +
     categoryScores.security * 0.2
   );
 

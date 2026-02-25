@@ -6,8 +6,8 @@ import { normalizeUrl } from '@/lib/url-utils';
 import { runScan } from '@/lib/scanner';
 import { rateLimit } from '@/lib/rate-limit';
 
-// Allow up to 60 seconds for the scan background work
-export const maxDuration = 60;
+// Allow up to 300 seconds for the scan background work
+export const maxDuration = 300;
 
 export async function POST(request: NextRequest) {
   try {
@@ -39,7 +39,7 @@ export async function POST(request: NextRequest) {
     const parsed = CreateScanRequestSchema.safeParse(body);
     if (!parsed.success) {
       return NextResponse.json(
-        { error: 'Invalid request', details: parsed.error.flatten() },
+        { error: 'Invalid request', details: parsed.error.issues },
         { status: 400 }
       );
     }
@@ -104,14 +104,14 @@ export async function POST(request: NextRequest) {
     });
   } catch (error: unknown) {
     console.error('Error creating scan:', error);
-    const detail =
-      error instanceof Error
-        ? error.message
-        : typeof error === 'object' && error !== null && 'message' in error
-          ? String((error as { message: string }).message)
-          : typeof error === 'string'
-            ? error
-            : 'Unknown error: ' + JSON.stringify(error);
+    let detail = 'Unknown error';
+    if (error instanceof Error) {
+      detail = error.message;
+    } else if (typeof error === 'object' && error !== null && 'message' in error) {
+      detail = String((error as { message: string }).message);
+    } else if (typeof error === 'string') {
+      detail = error;
+    }
     return NextResponse.json(
       { error: 'Failed to create scan', detail },
       { status: 500 }
@@ -122,7 +122,7 @@ export async function POST(request: NextRequest) {
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const limit = Math.min(parseInt(searchParams.get('limit') ?? '10'), 50);
+    const limit = Math.min(Number.parseInt(searchParams.get('limit') ?? '10'), 50);
 
     const { data: scans, error: dbError } = await supabaseAdmin
       .from('ScanRun')

@@ -62,10 +62,10 @@ const DEFAULT_OPTIONS: CrawlerOptions = {
 export class Crawler {
   private browser: Browser | null = null;
   private useFetchFallback = false;
-  private visited = new Set<string>();
-  private queue: Array<{ url: string; depth: number }> = [];
+  private readonly visited = new Set<string>();
+  private readonly queue: Array<{ url: string; depth: number }> = [];
   private baseHostname: string = '';
-  private options: CrawlerOptions;
+  private readonly options: CrawlerOptions;
   private onProgress?: (discovered: number, scanned: number, current: string) => void;
 
   /** Whether this crawler fell back to fetch mode (no browser available). */
@@ -304,7 +304,7 @@ export class Crawler {
     const robotsMeta = $('meta[name="robots"]').attr('content') || null;
 
     // Count words in body text
-    const bodyText = $('body').text().replace(/\s+/g, ' ').trim();
+    const bodyText = $('body').text().replaceAll(/\s+/g, ' ').trim();
     const wordCount = bodyText.split(' ').filter(Boolean).length;
 
     // Extract all headings (h1-h6)
