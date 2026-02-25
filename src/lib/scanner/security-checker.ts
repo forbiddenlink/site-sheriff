@@ -101,6 +101,42 @@ const SECURITY_HEADERS: Array<{
     impact: 2,
     effort: 1,
   },
+  {
+    header: 'cross-origin-opener-policy',
+    code: 'missing_coop',
+    severity: 'P3',
+    title: 'Missing Cross-Origin-Opener-Policy header',
+    whyItMatters:
+      'COOP prevents cross-origin documents from sharing a browsing context group, protecting against Spectre-style side-channel attacks.',
+    howToFix:
+      'Add the header: Cross-Origin-Opener-Policy: same-origin (or same-origin-allow-popups if you need cross-origin popups)',
+    impact: 2,
+    effort: 1,
+  },
+  {
+    header: 'cross-origin-embedder-policy',
+    code: 'missing_coep',
+    severity: 'P3',
+    title: 'Missing Cross-Origin-Embedder-Policy header',
+    whyItMatters:
+      'COEP prevents loading cross-origin resources that do not explicitly grant permission. Required for SharedArrayBuffer and high-resolution timers.',
+    howToFix:
+      'Add the header: Cross-Origin-Embedder-Policy: require-corp (ensures all resources are same-origin or explicitly marked cross-origin)',
+    impact: 2,
+    effort: 2,
+  },
+  {
+    header: 'cross-origin-resource-policy',
+    code: 'missing_corp',
+    severity: 'P3',
+    title: 'Missing Cross-Origin-Resource-Policy header',
+    whyItMatters:
+      'CORP controls which origins can embed your resources, preventing data leaks through cross-origin embedding attacks.',
+    howToFix:
+      'Add the header: Cross-Origin-Resource-Policy: same-origin (or cross-origin if resources need to be publicly embeddable)',
+    impact: 2,
+    effort: 1,
+  },
 ];
 
 /**

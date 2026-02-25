@@ -62,9 +62,9 @@ export async function checkAccessibility(
       timeout: 30000,
     });
 
-    // Run axe-core
+    // Run axe-core with WCAG 2.2 support (includes Focus Not Obscured, Dragging Movements, Target Size)
     const results = await new AxeBuilder({ page })
-      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'best-practice'])
+      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa', 'best-practice'])
       .analyze();
 
     const violations: A11yViolation[] = results.violations.map((v) => ({
