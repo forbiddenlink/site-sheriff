@@ -13,6 +13,7 @@ import { checkContentQuality } from './content-checker';
 import { checkImageOptimization } from './image-checker';
 import { checkResourceOptimization } from './resource-checker';
 import { analyzeInternalLinking } from './linking-analyzer';
+import { checkEEAT } from './eeat-checker';
 import type { ScanSettings, ScanProgress, ScanSummary, LinkData } from '../types';
 
 export { Crawler } from './crawler';
@@ -191,6 +192,19 @@ export async function runScan(ctx: ScanContext): Promise<void> {
         }
       }
       completedPhases.push('content');
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Phase 2a-eeat: E-E-A-T and advanced SEO checks
+    // ─────────────────────────────────────────────────────────────────────────
+    if (!isNearDeadline()) {
+      for (const result of htmlPages) {
+        if (!result.error) {
+          const eeatIssues = checkEEAT(result);
+          allIssues.push(...eeatIssues);
+        }
+      }
+      completedPhases.push('eeat');
     }
 
     // ─────────────────────────────────────────────────────────────────────────
