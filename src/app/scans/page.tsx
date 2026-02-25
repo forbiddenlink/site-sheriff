@@ -184,6 +184,25 @@ export default function ScansPage() {
             </div>
           </div>
         )}
+
+        {/* Footer */}
+        <footer className="mt-16 pt-8 border-t border-white/6 flex items-center justify-center gap-4 text-xs font-mono">
+          <a
+            href="https://github.com/forbiddenlink/site-sheriff/issues"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-slate-500 hover:text-emerald-400 transition-colors"
+          >
+            Contact
+          </a>
+          <span className="text-slate-700">·</span>
+          <Link
+            href="/privacy"
+            className="text-slate-500 hover:text-emerald-400 transition-colors"
+          >
+            Privacy
+          </Link>
+        </footer>
       </div>
     </main>
   );
