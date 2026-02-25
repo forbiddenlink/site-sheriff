@@ -154,7 +154,7 @@ const steps = [
   {
     num: '02',
     title: 'Scans everything',
-    desc: '100+ checks across 10 categories, page by page.',
+    desc: '160+ checks across 10 categories, page by page.',
     icon: (
       <svg className="w-6 h-6 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
@@ -251,7 +251,7 @@ export default function Home() {
             {' '}in 90 seconds
           </h1>
           <p className="text-lg text-slate-400 mb-10 max-w-lg mx-auto lg:mx-0 leading-relaxed font-normal">
-            100+ checks across SEO, security, accessibility, performance, links,
+            160+ checks across SEO, security, accessibility, performance, links,
             content, images, and more — prioritized, evidence-backed, and explained.
           </p>
 
