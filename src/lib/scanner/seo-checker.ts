@@ -1019,8 +1019,9 @@ export function checkSPARendering(result: CrawlResult): Array<{
       const noscriptContent = match[1]
         .replaceAll(/<[^>]+>/g, '')
         .trim();
-      // Consider meaningful if it has more than just "enable JavaScript" message
-      if (noscriptContent.length > 100 && !/enable\s*javascript/i.test(noscriptContent)) {
+      // Consider meaningful if it has substantial content (>100 chars)
+      // Even if it mentions "enable JavaScript", longer explanations are acceptable
+      if (noscriptContent.length > 100) {
         hasMeaningfulNoscript = true;
         break;
       }

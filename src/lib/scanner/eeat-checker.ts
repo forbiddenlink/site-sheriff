@@ -115,8 +115,10 @@ function checkTrustSignals(url: string, $: cheerio.CheerioAPI): EEATIssue[] {
   const issues: EEATIssue[] = [];
 
   // Check for privacy policy link
+  // Skip this check if the current page IS the privacy policy page
+  const isPrivacyPage = /\/privacy(-policy)?$/i.test(new URL(url).pathname);
   const hasPrivacyLink = $('a[href*="privacy"]').length > 0;
-  if (!hasPrivacyLink) {
+  if (!hasPrivacyLink && !isPrivacyPage) {
     issues.push({
       code: 'missing_privacy_policy',
       severity: 'P3',
@@ -133,9 +135,14 @@ function checkTrustSignals(url: string, $: cheerio.CheerioAPI): EEATIssue[] {
   }
 
   // Check for contact info
+  // Match href patterns OR link text containing "contact" (case-insensitive)
   const hasContactLink = $('a[href*="contact"], a[href*="mailto:"], a[href^="tel:"]').length > 0;
   const hasContactClass = $('.contact, [class*="contact"]').length > 0;
-  if (!hasContactLink && !hasContactClass) {
+  const hasContactText = $('a').filter((_, el) => {
+    const text = $(el).text().toLowerCase();
+    return text.includes('contact');
+  }).length > 0;
+  if (!hasContactLink && !hasContactClass && !hasContactText) {
     issues.push({
       code: 'missing_contact_info',
       severity: 'P3',

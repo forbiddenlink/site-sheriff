@@ -72,14 +72,32 @@ export default function PrivacyPage() {
           </p>
         </div>
 
-        <div className="mt-12">
-          <a
-            href="/"
-            className="text-emerald-400 hover:underline"
-          >
-            ← Back to Site Sheriff
-          </a>
-        </div>
+        <footer className="mt-16 pt-8 border-t border-slate-800 flex flex-col items-center gap-3">
+          <div className="flex items-center gap-4 flex-wrap justify-center">
+            <a
+              href="/"
+              className="text-sm text-slate-500 hover:text-emerald-400 transition-colors"
+            >
+              ← Back to Site Sheriff
+            </a>
+            <span className="text-slate-700">·</span>
+            <a
+              href="https://github.com/forbiddenlink/site-sheriff/issues"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm text-slate-500 hover:text-emerald-400 transition-colors"
+            >
+              Contact
+            </a>
+            <span className="text-slate-700">·</span>
+            <a
+              href="/privacy"
+              className="text-sm text-slate-500 hover:text-emerald-400 transition-colors"
+            >
+              Privacy
+            </a>
+          </div>
+        </footer>
       </div>
     </main>
   );
