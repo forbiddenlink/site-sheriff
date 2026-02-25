@@ -85,9 +85,49 @@ export function shouldExcludeUrl(url: string): boolean {
     /\?.*logout/i,
     /\/feed\/?$/i,
     /\/rss\/?$/i,
+    /\/api\//i,
+    /\/_next\//i,
+    /\/\.well-known\//i,
   ];
 
   return excludePatterns.some((pattern) => pattern.test(url));
+}
+
+/**
+ * Check if a URL is safe to crawl (SSRF protection).
+ * Rejects private IPs, localhost, cloud metadata endpoints, and non-http(s) protocols.
+ */
+export function isSafeUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url.startsWith('http') ? url : `https://${url}`);
+
+    // Only allow http/https
+    if (!['http:', 'https:'].includes(parsed.protocol)) return false;
+
+    const hostname = parsed.hostname.toLowerCase();
+
+    // Block localhost variants
+    if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1' || hostname === '[::1]' || hostname === '0.0.0.0') return false;
+
+    // Block private IP ranges
+    const ipMatch = hostname.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
+    if (ipMatch) {
+      const [, a, b] = ipMatch.map(Number);
+      if (a === 10) return false;                          // 10.0.0.0/8
+      if (a === 172 && b >= 16 && b <= 31) return false;   // 172.16.0.0/12
+      if (a === 192 && b === 168) return false;            // 192.168.0.0/16
+      if (a === 127) return false;                         // 127.0.0.0/8
+      if (a === 169 && b === 254) return false;            // 169.254.0.0/16 (link-local + cloud metadata)
+      if (a === 0) return false;                           // 0.0.0.0/8
+    }
+
+    // Block hostnames that look like internal resources
+    if (hostname.endsWith('.local') || hostname.endsWith('.internal') || hostname.endsWith('.corp')) return false;
+
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**

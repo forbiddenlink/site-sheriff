@@ -3,7 +3,7 @@ import type { CrawlResult } from './crawler';
 export interface SEOIssue {
   code: string;
   severity: 'P0' | 'P1' | 'P2' | 'P3';
-  category: 'SEO' | 'CONTENT';
+  category: 'SEO' | 'CONTENT' | 'ACCESSIBILITY';
   title: string;
   whyItMatters: string;
   howToFix: string;
@@ -25,6 +25,8 @@ export interface SEOIssue {
  */
 export function checkSEO(result: CrawlResult): SEOIssue[] {
   const issues: SEOIssue[] = [];
+  let isHomepage = false;
+  try { isHomepage = ['/', ''].includes(new URL(result.url).pathname); } catch { /* ignore */ }
 
   // Missing title
   if (!result.title) {
@@ -181,21 +183,6 @@ export function checkSEO(result: CrawlResult): SEOIssue[] {
     });
   }
 
-  // Thin content
-  if (result.wordCount < 100) {
-    issues.push({
-      code: 'thin_content',
-      severity: 'P2',
-      category: 'SEO',
-      title: 'Thin content (low word count)',
-      whyItMatters: 'Pages with very little text may be seen as low-quality by search engines.',
-      howToFix: 'Add more valuable, relevant content to the page (aim for 300+ words for main content pages).',
-      evidence: { url: result.url, actual: `${result.wordCount} words`, expected: '300+ words' },
-      impact: 3,
-      effort: 3,
-    });
-  }
-
   // ── Open Graph checks ────────────────────────────────────────────────
   if (!result.ogTags['og:title']) {
     issues.push({
@@ -278,16 +265,28 @@ export function checkSEO(result: CrawlResult): SEOIssue[] {
       impact: 5,
       effort: 1,
     });
+  } else if (result.viewport && !result.viewport.includes('width=device-width')) {
+    issues.push({
+      code: 'viewport_not_responsive',
+      severity: 'P2',
+      category: 'SEO',
+      title: 'Viewport meta tag is not responsive',
+      whyItMatters: 'A viewport tag without width=device-width means the page won\'t scale properly on mobile devices, hurting usability and mobile-first indexing.',
+      howToFix: 'Update the viewport tag to include width=device-width: <meta name="viewport" content="width=device-width, initial-scale=1">.',
+      evidence: { url: result.url, actual: result.viewport, expected: 'width=device-width' },
+      impact: 4,
+      effort: 1,
+    });
   }
 
   // ── Language attribute check ──────────────────────────────────────────
   if (!result.lang) {
     issues.push({
-      code: 'missing_lang',
+      code: 'missing_lang_attribute',
       severity: 'P2',
-      category: 'SEO',
+      category: 'ACCESSIBILITY',
       title: 'Missing lang attribute on <html>',
-      whyItMatters: 'The lang attribute helps search engines and screen readers understand the page language. Missing it can hurt accessibility and SEO.',
+      whyItMatters: 'The lang attribute helps screen readers determine the correct pronunciation and helps search engines understand the page language. Missing it hurts accessibility.',
       howToFix: 'Add lang="en" (or your language code) to the <html> tag.',
       evidence: { url: result.url },
       impact: 3,
@@ -295,107 +294,8 @@ export function checkSEO(result: CrawlResult): SEOIssue[] {
     });
   }
 
-  // ── Heading hierarchy checks ──────────────────────────────────────────
-  const h1Count = result.headings.filter(h => h.level === 1).length;
-  if (h1Count > 1) {
-    issues.push({
-      code: 'multiple_h1',
-      severity: 'P2',
-      category: 'SEO',
-      title: `Multiple H1 tags found (${h1Count})`,
-      whyItMatters: 'Using multiple H1 tags can confuse search engines about the main topic of the page.',
-      howToFix: 'Use a single H1 for the main page heading. Use H2-H6 for subheadings.',
-      evidence: {
-        url: result.url,
-        actual: result.headings.filter(h => h.level === 1).map(h => h.text).join(', '),
-      },
-      impact: 2,
-      effort: 1,
-    });
-  }
-
-  // Check heading hierarchy (shouldn't skip levels, e.g. H1 → H3)
-  if (result.headings.length > 1) {
-    for (let i = 1; i < result.headings.length; i++) {
-      const prev = result.headings[i - 1].level;
-      const curr = result.headings[i].level;
-      if (curr > prev + 1) {
-        issues.push({
-          code: 'heading_skip_level',
-          severity: 'P3',
-          category: 'SEO',
-          title: `Heading hierarchy skips level (H${prev} → H${curr})`,
-          whyItMatters: 'Skipping heading levels (e.g., H1 to H3) hurts accessibility and can confuse search engines about content structure.',
-          howToFix: `Use sequential heading levels. Add an H${prev + 1} between the H${prev} and H${curr}.`,
-          evidence: { url: result.url, actual: `H${prev} → H${curr}` },
-          impact: 1,
-          effort: 1,
-        });
-        break; // Only report first skip
-      }
-    }
-  }
-
-  // ── Image alt text checks ─────────────────────────────────────────────
-  const imagesWithoutAlt = result.images.filter(img => img.alt === null || img.alt === '');
-  if (imagesWithoutAlt.length > 0) {
-    issues.push({
-      code: 'images_missing_alt',
-      severity: 'P1',
-      category: 'CONTENT',
-      title: `${imagesWithoutAlt.length} image(s) missing alt text`,
-      whyItMatters: 'Images without alt text are invisible to screen readers and search engines. Alt text is critical for accessibility and image SEO.',
-      howToFix: 'Add descriptive alt attributes to all meaningful images. Use alt="" only for decorative images.',
-      evidence: {
-        url: result.url,
-        snippet: imagesWithoutAlt.slice(0, 5).map(i => i.src).join(', '),
-        actual: `${imagesWithoutAlt.length} of ${result.images.length} images`,
-      },
-      impact: 4,
-      effort: 2,
-    });
-  }
-
-  // Oversized image check
-  for (const image of result.images) {
-    const width = image.width ? Number.parseInt(image.width, 10) : Number.NaN;
-    const height = image.height ? Number.parseInt(image.height, 10) : Number.NaN;
-    if (!Number.isNaN(width) && !Number.isNaN(height) && (width > 2000 || height > 2000)) {
-      issues.push({
-        code: 'oversized_image',
-        severity: 'P3',
-        category: 'CONTENT',
-        title: 'Potentially oversized image',
-        whyItMatters: 'Large images slow down page load times and consume bandwidth. Images should be appropriately sized for their display context.',
-        howToFix: 'Resize images to the maximum display size needed. Use responsive images with srcset for different screen sizes.',
-        evidence: { url: result.url, src: image.src, width, height },
-        impact: 2,
-        effort: 2,
-      });
-    }
-  }
-
-  // Images missing dimensions
-  const imagesWithoutDimensions = result.images.filter(img => !img.width || !img.height);
-  if (imagesWithoutDimensions.length > 3) {
-    issues.push({
-      code: 'images_missing_dimensions',
-      severity: 'P3',
-      category: 'CONTENT',
-      title: `${imagesWithoutDimensions.length} image(s) missing width/height`,
-      whyItMatters: 'Images without explicit dimensions cause layout shifts (CLS) when they load, hurting Core Web Vitals scores.',
-      howToFix: 'Add width and height attributes to <img> tags to reserve space before the image loads.',
-      evidence: {
-        url: result.url,
-        actual: `${imagesWithoutDimensions.length} of ${result.images.length} images`,
-      },
-      impact: 2,
-      effort: 2,
-    });
-  }
-
-  // ── Favicon check ──────────────────────────────────────────────────────
-  if (result.html) {
+  // ── Favicon check (homepage only) ─────────────────────────────────────
+  if (isHomepage && result.html) {
     const htmlLower = result.html.toLowerCase();
     const hasFavicon =
       htmlLower.includes('rel="icon"') ||
@@ -420,6 +320,60 @@ export function checkSEO(result: CrawlResult): SEOIssue[] {
     }
   }
 
+  // ── Hreflang validation ───────────────────────────────────────────────
+  if (result.html) {
+    const hreflangMatches = [...result.html.matchAll(/<link[^>]*\bhreflang\s*=\s*["']([^"']+)["'][^>]*>/gi)];
+    const hreflangTags: Array<{ lang: string; href: string }> = [];
+    for (const match of hreflangMatches) {
+      const tag = match[0];
+      if (!/\brel\s*=\s*["']alternate["']/i.test(tag)) continue;
+      const lang = match[1];
+      const hrefMatch = /\bhref\s*=\s*["']([^"']+)["']/i.exec(tag);
+      const href = hrefMatch?.[1] ?? '';
+      hreflangTags.push({ lang, href });
+    }
+
+    if (hreflangTags.length > 0) {
+      // Self-referencing check
+      const normalizedPageUrl = result.url.replace(/\/$/, '').toLowerCase();
+      const hasSelfReference = hreflangTags.some(t => {
+        try { return t.href.replace(/\/$/, '').toLowerCase() === normalizedPageUrl; }
+        catch { return false; }
+      });
+      if (!hasSelfReference) {
+        issues.push({
+          code: 'hreflang_missing_self_reference',
+          severity: 'P2',
+          category: 'SEO',
+          title: 'Hreflang missing self-referencing tag',
+          whyItMatters: 'Each page with hreflang tags should include a self-referencing entry. Without it, search engines may not correctly associate the page with its language/region.',
+          howToFix: 'Add a <link rel="alternate" hreflang="..." href="..."> tag that points to the current page URL.',
+          evidence: { url: result.url, snippet: `Found ${hreflangTags.length} hreflang tag(s) but none point to this page` },
+          impact: 3,
+          effort: 1,
+        });
+      }
+
+      // Invalid language code check
+      const validLangRegex = /^[a-z]{2}(-[A-Z]{2})?$|^x-default$/;
+      for (const tag of hreflangTags) {
+        if (!validLangRegex.test(tag.lang)) {
+          issues.push({
+            code: 'hreflang_invalid_language',
+            severity: 'P2',
+            category: 'SEO',
+            title: 'Invalid hreflang language code',
+            whyItMatters: 'Invalid language codes in hreflang tags are ignored by search engines, defeating the purpose of international targeting.',
+            howToFix: 'Use valid ISO 639-1 language codes (e.g., "en", "fr") optionally followed by ISO 3166-1 region codes (e.g., "en-US", "fr-CA"), or "x-default".',
+            evidence: { url: result.url, actual: tag.lang, expected: 'Valid language code like "en", "en-US", or "x-default"' },
+            impact: 3,
+            effort: 1,
+          });
+        }
+      }
+    }
+  }
+
   return issues;
 }
 
@@ -433,11 +387,12 @@ export function checkStructuredData(result: CrawlResult): SEOIssue[] {
   // Find all JSON-LD script blocks
   const jsonLdPattern = /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
   const matches = [...result.html.matchAll(jsonLdPattern)];
+  const isHomepage = (() => { try { return ['/', ''].includes(new URL(result.url).pathname); } catch { return false; } })();
 
-  if (matches.length === 0) {
+  if (matches.length === 0 && isHomepage) {
     issues.push({
       code: 'missing_structured_data',
-      severity: 'P2',
+      severity: 'P3',
       category: 'SEO',
       title: 'No structured data (JSON-LD) found',
       whyItMatters: 'Structured data helps search engines understand your content and can enable rich results (stars, FAQs, breadcrumbs) in search listings.',
@@ -453,8 +408,8 @@ export function checkStructuredData(result: CrawlResult): SEOIssue[] {
         JSON.parse(content);
       } catch {
         issues.push({
-          code: 'invalid_structured_data',
-          severity: 'P1',
+          code: 'invalid_json_ld',
+          severity: 'P2',
           category: 'SEO',
           title: 'Invalid JSON-LD structured data',
           whyItMatters: 'Malformed JSON-LD will be ignored by search engines, meaning you lose the benefits of structured data entirely.',

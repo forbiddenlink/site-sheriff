@@ -40,6 +40,8 @@ function impactToScore(impact: string | null | undefined): number {
 export interface ScanContext {
   scanRunId: string;
   settings: ScanSettings;
+  /** Maximum wall-clock time for the entire scan in ms. Default 540 000 (9 min). */
+  maxScanTimeMs?: number;
 }
 
 /**
@@ -48,6 +50,18 @@ export interface ScanContext {
 export async function runScan(ctx: ScanContext): Promise<void> {
   const { scanRunId, settings } = ctx;
   const startTime = Date.now();
+
+  // ── Timeout handling ───────────────────────────────────────────────────
+  // Default 9 minutes (540 s), giving a 1-minute safety margin under
+  // Vercel's 10-minute serverless function limit.
+  const scanDeadline = startTime + (ctx.maxScanTimeMs ?? 540_000);
+  const SAFETY_MARGIN_MS = 30_000; // 30 s buffer before hard deadline
+  const completedPhases: string[] = [];
+
+  /** Returns true when we should stop adding new phases. */
+  function isNearDeadline(): boolean {
+    return Date.now() > scanDeadline - SAFETY_MARGIN_MS;
+  }
 
   try {
     // Update status to running
@@ -82,6 +96,19 @@ export async function runScan(ctx: ScanContext): Promise<void> {
 
     const crawlResults = await crawler.crawl(normalizedUrl);
 
+    // Helper: determine if a crawl result is an HTML page (not JSON API, redirect, etc.)
+    const isHtmlPage = (r: CrawlResult): boolean => {
+      if (r.error) return false;
+      const ct = r.contentType?.toLowerCase() ?? '';
+      // Must have text/html content type (or be empty, which typically means HTML)
+      const isHtmlContentType = !ct || ct.includes('text/html') || ct.includes('application/xhtml+xml');
+      if (!isHtmlContentType) return false;
+      // Skip pages with very low word count that look like JSON/API responses
+      return !(r.wordCount === 0 && r.html.trim().startsWith('{'));
+    };
+
+    const htmlPages = crawlResults.filter(isHtmlPage);
+
     // Save page results (batch insert)
     const pageRows = crawlResults.map((result) => ({
       id: crypto.randomUUID(),
@@ -108,6 +135,8 @@ export async function runScan(ctx: ScanContext): Promise<void> {
       if (pageError) throw pageError;
     }
 
+    completedPhases.push('crawl');
+
     // ─────────────────────────────────────────────────────────────────────────
     // Phase 2: Check SEO issues
     // ─────────────────────────────────────────────────────────────────────────
@@ -130,7 +159,7 @@ export async function runScan(ctx: ScanContext): Promise<void> {
       effort: number | null;
     }> = [];
 
-    for (const result of crawlResults) {
+    for (const result of htmlPages) {
       if (!result.error) {
         const seoIssues = checkSEO(result);
         allIssues.push(...seoIssues);
@@ -141,93 +170,129 @@ export async function runScan(ctx: ScanContext): Promise<void> {
     }
 
     // SPA detection on homepage (first crawl result)
-    if (crawlResults.length > 0 && !crawlResults[0].error) {
-      const spaIssues = checkSPARendering(crawlResults[0]);
+    if (htmlPages.length > 0 && !htmlPages[0].error) {
+      const spaIssues = checkSPARendering(htmlPages[0]);
       allIssues.push(...spaIssues);
     }
+
+    completedPhases.push('seo');
 
     // ─────────────────────────────────────────────────────────────────────────
     // Phase 2a-content: Content quality checks
     // ─────────────────────────────────────────────────────────────────────────
-    for (const result of crawlResults) {
-      if (!result.error) {
-        const contentIssues = checkContentQuality(result);
-        allIssues.push(...contentIssues);
+    if (!isNearDeadline()) {
+      for (const result of htmlPages) {
+        if (!result.error) {
+          const contentIssues = checkContentQuality(result);
+          allIssues.push(...contentIssues);
+        }
       }
+      completedPhases.push('content');
     }
 
     // ─────────────────────────────────────────────────────────────────────────
     // Phase 2a-images: Image optimization checks
     // ─────────────────────────────────────────────────────────────────────────
-    for (const result of crawlResults) {
-      if (!result.error) {
-        const imageIssues = checkImageOptimization(result);
-        allIssues.push(...imageIssues);
+    if (!isNearDeadline()) {
+      for (const result of htmlPages) {
+        if (!result.error) {
+          const imageIssues = checkImageOptimization(result);
+          allIssues.push(...imageIssues);
+        }
       }
+      completedPhases.push('images');
     }
 
     // ─────────────────────────────────────────────────────────────────────────
     // Phase 2a-resources: Resource optimization checks
     // ─────────────────────────────────────────────────────────────────────────
-    for (const result of crawlResults) {
-      if (!result.error) {
-        const resourceIssues = checkResourceOptimization(result);
-        allIssues.push(...resourceIssues);
+    if (!isNearDeadline()) {
+      for (const result of htmlPages) {
+        if (!result.error) {
+          const resourceIssues = checkResourceOptimization(result);
+          allIssues.push(...resourceIssues);
+        }
       }
+      completedPhases.push('resources');
     }
 
     // ─────────────────────────────────────────────────────────────────────────
     // Phase 2b: Security checks
     //   Security headers are typically site-wide — check homepage only to avoid duplicate issues
     // ─────────────────────────────────────────────────────────────────────────
-    const firstGoodResult = crawlResults.find((r) => !r.error);
-    if (firstGoodResult) {
-      const securityIssues = checkSecurity(firstGoodResult);
-      allIssues.push(...securityIssues);
-    }
-
-    // Check security.txt (once per scan)
-    try {
-      const secTxtIssues = await checkSecurityTxt(normalizedUrl);
-      allIssues.push(...secTxtIssues);
-    } catch {
-      console.warn('security.txt check failed');
-    }
-
-    // HTTPS redirect check
-    if (normalizedUrl.startsWith('https://')) {
-      try {
-        const httpsIssues = await checkHttpsRedirect(normalizedUrl);
-        allIssues.push(...httpsIssues);
-      } catch {
-        console.warn('HTTPS redirect check failed');
+    const firstGoodResult = htmlPages.find((r) => !r.error);
+    if (!isNearDeadline()) {
+      if (firstGoodResult) {
+        const securityIssues = checkSecurity(firstGoodResult);
+        allIssues.push(...securityIssues);
       }
+
+      // Check security.txt (once per scan)
+      try {
+        const secTxtIssues = await checkSecurityTxt(normalizedUrl);
+        allIssues.push(...secTxtIssues);
+      } catch {
+        console.warn('security.txt check failed');
+      }
+
+      // HTTPS redirect check
+      if (normalizedUrl.startsWith('https://')) {
+        try {
+          const httpsIssues = await checkHttpsRedirect(normalizedUrl);
+          allIssues.push(...httpsIssues);
+        } catch {
+          console.warn('HTTPS redirect check failed');
+        }
+      }
+      completedPhases.push('security');
     }
 
     // ─────────────────────────────────────────────────────────────────────────
     // Phase 2c: Robots.txt and sitemap checks
     // ─────────────────────────────────────────────────────────────────────────
     let sitemapUrls: string[] = [];
-    try {
-      const robotsResult = await checkRobotsSitemap(normalizedUrl);
-      allIssues.push(...robotsResult.issues);
-      sitemapUrls = robotsResult.sitemapUrls;
-    } catch {
-      console.warn('Robots/sitemap check failed');
+    if (!isNearDeadline()) {
+      try {
+        const robotsResult = await checkRobotsSitemap(normalizedUrl);
+        allIssues.push(...robotsResult.issues);
+        sitemapUrls = robotsResult.sitemapUrls;
+      } catch {
+        console.warn('Robots/sitemap check failed');
+      }
+      completedPhases.push('robots-sitemap');
     }
 
     // ─────────────────────────────────────────────────────────────────────────
     // Phase 2d: Tech detection + duplicate content detection
     // ─────────────────────────────────────────────────────────────────────────
     let technologies: Array<{ name: string; category: string; confidence: string; evidence: string }> = [];
-    if (crawlResults.length > 0 && !crawlResults[0].error) {
-      technologies = detectTechnologies(crawlResults[0]);
-    }
+    if (!isNearDeadline()) {
+      if (crawlResults.length > 0 && !crawlResults[0].error) {
+        technologies = detectTechnologies(crawlResults[0]);
+      }
 
-    // Duplicate title/description detection (cross-page)
-    if (crawlResults.length > 1) {
-      const dupeIssues = checkDuplicates(crawlResults);
-      allIssues.push(...dupeIssues);
+      // Duplicate title/description detection (cross-page)
+      if (htmlPages.length > 1) {
+        const dupeIssues = checkDuplicates(htmlPages);
+        allIssues.push(...dupeIssues);
+      }
+
+      // Validate OG image URLs actually resolve
+      try {
+        const ogImageIssues = await validateOgImages(htmlPages);
+        allIssues.push(...ogImageIssues);
+      } catch {
+        console.warn('OG image validation failed');
+      }
+
+      // Validate canonical URLs actually resolve
+      try {
+        const canonicalIssues = await validateCanonicals(htmlPages);
+        allIssues.push(...canonicalIssues);
+      } catch {
+        console.warn('Canonical URL validation failed');
+      }
+      completedPhases.push('tech-duplicates');
     }
 
     // Validate OG image URLs actually resolve
@@ -249,23 +314,183 @@ export async function runScan(ctx: ScanContext): Promise<void> {
     // ─────────────────────────────────────────────────────────────────────────
     // Phase 2d-links: Internal linking analysis (cross-page)
     // ─────────────────────────────────────────────────────────────────────────
-    if (crawlResults.length > 1) {
+    if (!isNearDeadline() && htmlPages.length > 1) {
       try {
-        const linkingIssues = analyzeInternalLinking(crawlResults, normalizedUrl);
+        const linkingIssues = analyzeInternalLinking(htmlPages, normalizedUrl);
         allIssues.push(...linkingIssues);
       } catch {
         console.warn('Internal linking analysis failed');
       }
+      completedPhases.push('internal-linking');
     }
 
     // ─────────────────────────────────────────────────────────────────────────
     // Phase 2e: Compression check
     // ─────────────────────────────────────────────────────────────────────────
-    try {
-      const compressionIssues = await checkCompression(normalizedUrl);
-      allIssues.push(...compressionIssues);
+    if (!isNearDeadline()) {
+      try {
+        const compressionIssues = await checkCompression(normalizedUrl);
+        allIssues.push(...compressionIssues);
+      } catch {
+        console.warn('Compression check failed');
+      }
+      completedPhases.push('compression');
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Phase 2f: Sitemap ↔ crawl cross-reference
+    // ─────────────────────────────────────────────────────────────────────────
+    if (!isNearDeadline()) try {
+      if (sitemapUrls.length > 0) {
+        // Helper to normalize URLs for comparison
+        const normalizeForCompare = (u: string): string => {
+          try {
+            const parsed = new URL(u);
+            return (parsed.origin + parsed.pathname).replace(/\/+$/, '').toLowerCase();
+          } catch {
+            return u.replace(/\/+$/, '').toLowerCase();
+          }
+        };
+
+        const sitemapNormalized = new Set(sitemapUrls.map(normalizeForCompare));
+        const crawledMap = new Map<string, { url: string; statusCode: number; error?: string }>();
+        for (const r of crawlResults) {
+          crawledMap.set(normalizeForCompare(r.url), {
+            url: r.url,
+            statusCode: r.statusCode,
+            error: r.error,
+          });
+        }
+
+        // (a) Sitemap URLs that were crawled and returned error status
+        for (const smUrl of sitemapUrls) {
+          const norm = normalizeForCompare(smUrl);
+          const crawled = crawledMap.get(norm);
+          if (crawled && crawled.statusCode >= 400) {
+            allIssues.push({
+              code: 'sitemap_url_broken',
+              severity: 'P1',
+              category: 'SEO',
+              title: `Sitemap URL returns ${crawled.statusCode}`,
+              whyItMatters:
+                'URLs in your sitemap should be valid, indexable pages. Broken URLs waste search engine crawl budget and signal a poorly maintained site.',
+              howToFix:
+                'Remove the broken URL from your sitemap.xml, or fix the page so it returns a 200 status.',
+              evidence: {
+                url: crawled.url,
+                httpStatus: crawled.statusCode,
+                sitemapUrl: smUrl,
+              },
+              impact: 4,
+              effort: 1,
+            });
+          }
+        }
+
+        // (b) Sitemap URLs not reached by crawler
+        for (const smUrl of sitemapUrls) {
+          const norm = normalizeForCompare(smUrl);
+          if (!crawledMap.has(norm)) {
+            allIssues.push({
+              code: 'sitemap_url_not_crawled',
+              severity: 'P2',
+              category: 'SEO',
+              title: 'Sitemap URL was not reached by crawler',
+              whyItMatters:
+                'This URL is listed in your sitemap but was not reachable from any page during the crawl. It may be an orphan page with no internal links pointing to it.',
+              howToFix:
+                'Add internal links to this page from other pages on your site, or remove it from the sitemap if it is no longer relevant.',
+              evidence: { url: smUrl },
+              impact: 3,
+              effort: 1,
+            });
+          }
+        }
+
+        // (c) Crawled pages missing from sitemap (status 200-399, not the homepage)
+        const homepageNormalized = normalizeForCompare(normalizedUrl);
+        for (const result of crawlResults) {
+          if (result.error || result.statusCode < 200 || result.statusCode >= 400) continue;
+          const norm = normalizeForCompare(result.url);
+          if (norm === homepageNormalized) continue;
+          if (!sitemapNormalized.has(norm)) {
+            allIssues.push({
+              code: 'page_not_in_sitemap',
+              severity: 'P3',
+              category: 'SEO',
+              title: 'Crawled page not found in sitemap',
+              whyItMatters:
+                'Pages accessible on your site but missing from the sitemap may be discovered more slowly by search engines.',
+              howToFix:
+                'Add this page to your sitemap.xml if it should be indexed.',
+              evidence: { url: result.url },
+              impact: 2,
+              effort: 1,
+            });
+          }
+        }
+      }
+      completedPhases.push('sitemap-xref');
     } catch {
-      console.warn('Compression check failed');
+      console.warn('Sitemap cross-reference check failed');
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Phase 2g: Server response time (TTFB) check
+    // ─────────────────────────────────────────────────────────────────────────
+    if (!isNearDeadline()) {
+      for (const result of htmlPages) {
+        if (result.ttfbMs !== null && result.ttfbMs !== undefined) {
+          if (result.ttfbMs > 2000) {
+            allIssues.push({
+              code: 'slow_server_response',
+              severity: 'P1',
+              category: 'PERFORMANCE',
+              title: 'Slow server response time (TTFB)',
+              whyItMatters: `Server took ${result.ttfbMs}ms to respond. Google recommends a TTFB under 800ms for good user experience.`,
+              howToFix: 'Optimize server-side processing, use caching (Redis, CDN edge caching), enable streaming, or upgrade hosting.',
+              evidence: { url: result.url, ttfbMs: result.ttfbMs },
+              impact: 4,
+              effort: 3,
+            });
+          } else if (result.ttfbMs > 800) {
+            allIssues.push({
+              code: 'moderate_server_response',
+              severity: 'P2',
+              category: 'PERFORMANCE',
+              title: 'Moderate server response time (TTFB)',
+              whyItMatters: `Server took ${result.ttfbMs}ms to respond. Aim for under 800ms TTFB for optimal Core Web Vitals.`,
+              howToFix: 'Consider server-side caching, a CDN, or reducing backend processing time.',
+              evidence: { url: result.url, ttfbMs: result.ttfbMs },
+              impact: 3,
+              effort: 3,
+            });
+          }
+        }
+      }
+      completedPhases.push('ttfb');
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Phase 2h: JavaScript console error detection
+    // ─────────────────────────────────────────────────────────────────────────
+    if (!isNearDeadline()) {
+      for (const result of htmlPages) {
+        if (result.consoleErrors && result.consoleErrors.length > 0) {
+          allIssues.push({
+            code: 'js_console_errors',
+            severity: result.consoleErrors.length >= 5 ? 'P1' : 'P2',
+            category: 'PERFORMANCE',
+            title: 'JavaScript console errors detected',
+            whyItMatters: `${result.consoleErrors.length} JavaScript error(s) found. Console errors indicate broken functionality, failed API calls, or missing resources that degrade user experience.`,
+            howToFix: 'Open the browser developer console, reproduce the errors, and fix the underlying issues in your JavaScript code.',
+            evidence: { url: result.url, errorCount: result.consoleErrors.length, errors: result.consoleErrors.slice(0, 5) },
+            impact: 4,
+            effort: 3,
+          });
+        }
+      }
+      completedPhases.push('console-errors');
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -363,101 +588,128 @@ export async function runScan(ctx: ScanContext): Promise<void> {
       }
     }
 
-    // Dedupe links by href for HTTP checking
-    const uniqueByHref = Array.from(new Map(allLinks.map((l) => [l.href, l])).values());
-    const internalLinks = uniqueByHref.filter((l) => l.isInternal);
-    const externalLinks = uniqueByHref.filter((l) => !l.isInternal);
+    if (!isNearDeadline()) {
+      // Dedupe links by href for HTTP checking
+      const uniqueByHref = Array.from(new Map(allLinks.map((l) => [l.href, l])).values());
+      const internalLinks = uniqueByHref.filter((l) => l.isInternal);
+      const externalLinks = uniqueByHref.filter((l) => !l.isInternal);
 
-    // Check internal links + a sample of external links
-    const linksToCheck = [
-      ...internalLinks.slice(0, 100),
-      ...externalLinks.slice(0, 20),
-    ];
-    const linkResults = await checkLinks(linksToCheck);
-    const brokenLinks = findBrokenLinks(linkResults);
+      // Check internal links + a sample of external links
+      const linksToCheck = [
+        ...internalLinks.slice(0, 100),
+        ...externalLinks.slice(0, 20),
+      ];
+      const linkResults = await checkLinks(linksToCheck);
+      const brokenLinks = findBrokenLinks(linkResults);
 
-    for (const broken of brokenLinks) {
-      const foundOnPages = [...(linkSourceMap.get(broken.href) ?? [])];
-      allIssues.push({
-        code: 'broken_link',
-        severity: broken.statusCode === 404 ? 'P1' : 'P2',
-        category: 'LINKS',
-        title: `Broken link (${broken.statusCode || 'connection error'})`,
-        whyItMatters: 'Broken links frustrate users and can hurt SEO. Search engines may penalize sites with many broken links.',
-        howToFix: broken.statusCode === 404
-          ? 'Remove the link or update it to point to a valid page.'
-          : 'Check the target server status and fix any connectivity issues.',
-        evidence: {
-          url: broken.href,
-          httpStatus: broken.statusCode,
-          error: broken.error,
-          linkText: broken.text,
-          foundOnPages: foundOnPages.length > 0 ? foundOnPages : undefined,
-        },
-        impact: 4,
-        effort: 1,
-      });
-    }
+      for (const broken of brokenLinks) {
+        const foundOnPages = [...(linkSourceMap.get(broken.href) ?? [])];
+        // Downgrade external links that return 403 or connection error to P3 (info)
+        // These are often false positives from bot-blocking WAFs
+        const isExternal = !broken.isInternal;
+        const isSoftFailure = broken.statusCode === 403 || broken.statusCode === 0;
+        let severity: 'P0' | 'P1' | 'P2' | 'P3';
+        if (isExternal && isSoftFailure) {
+          severity = 'P3';
+        } else if (broken.statusCode === 404) {
+          severity = 'P1';
+        } else {
+          severity = 'P2';
+        }
+        let howToFixMsg: string;
+        if (broken.statusCode === 404) {
+          howToFixMsg = 'Remove the link or update it to point to a valid page.';
+        } else if (isExternal && isSoftFailure) {
+          howToFixMsg = 'This external link may be blocking bots. Verify manually in a browser.';
+        } else {
+          howToFixMsg = 'Check the target server status and fix any connectivity issues.';
+        }
+        allIssues.push({
+          code: 'broken_link',
+          severity,
+          category: 'LINKS',
+          title: `Broken link (${broken.statusCode || 'connection error'})`,
+          whyItMatters: 'Broken links frustrate users and can hurt SEO. Search engines may penalize sites with many broken links.',
+          howToFix: howToFixMsg,
+          evidence: {
+            url: broken.href,
+            httpStatus: broken.statusCode,
+            error: broken.error,
+            linkText: broken.text,
+            foundOnPages: foundOnPages.length > 0 ? foundOnPages : undefined,
+          },
+          impact: isExternal && isSoftFailure ? 2 : 4,
+          effort: 1,
+        });
+      }
 
-    // Detect redirect chains
-    const redirectChains = findRedirectChains(linkResults);
-    for (const chain of redirectChains) {
-      const foundOnPages = [...(linkSourceMap.get(chain.href) ?? [])];
-      allIssues.push({
-        code: 'redirect_chain',
-        severity: 'P2',
-        category: 'LINKS',
-        title: `Redirect chain (${chain.redirectChain!.length - 1} hops)`,
-        whyItMatters: 'Long redirect chains slow page load and waste crawl budget. Each hop adds latency and search engines may stop following after a few redirects.',
-        howToFix: 'Update the link to point directly to the final destination URL, removing intermediate redirects.',
-        evidence: {
-          url: chain.href,
-          finalUrl: chain.redirectChain![chain.redirectChain!.length - 1],
-          chain: chain.redirectChain,
-          hops: chain.redirectChain!.length - 1,
-          linkText: chain.text,
-          foundOnPages: foundOnPages.length > 0 ? foundOnPages : undefined,
-        },
-        impact: 3,
-        effort: 1,
-      });
+      // Detect redirect chains
+      const redirectChains = findRedirectChains(linkResults);
+      for (const chain of redirectChains) {
+        const foundOnPages = [...(linkSourceMap.get(chain.href) ?? [])];
+        allIssues.push({
+          code: 'redirect_chain',
+          severity: 'P2',
+          category: 'LINKS',
+          title: `Redirect chain (${chain.redirectChain!.length - 1} hops)`,
+          whyItMatters: 'Long redirect chains slow page load and waste crawl budget. Each hop adds latency and search engines may stop following after a few redirects.',
+          howToFix: 'Update the link to point directly to the final destination URL, removing intermediate redirects.',
+          evidence: {
+            url: chain.href,
+            finalUrl: chain.redirectChain![chain.redirectChain!.length - 1],
+            chain: chain.redirectChain,
+            hops: chain.redirectChain!.length - 1,
+            linkText: chain.text,
+            foundOnPages: foundOnPages.length > 0 ? foundOnPages : undefined,
+          },
+          impact: 3,
+          effort: 1,
+        });
+      }
+      completedPhases.push('broken-links');
     }
 
     // ─────────────────────────────────────────────────────────────────────────
     // Phase 3b: Detect internal links to crawled error pages
     //   Cross-reference: pages crawled with 4xx/5xx and which pages link to them
     // ─────────────────────────────────────────────────────────────────────────
-    const crawledErrorPages = crawlResults.filter(
-      (r) => r.statusCode >= 400 || (r.statusCode === 0 && r.error)
-    );
-    for (const errorPage of crawledErrorPages) {
-      const sourcePages = [...(linkSourceMap.get(errorPage.url) ?? [])];
-      if (sourcePages.length > 0) {
-        allIssues.push({
-          code: 'internal_link_to_error_page',
-          severity: errorPage.statusCode === 404 ? 'P1' : 'P2',
-          category: 'LINKS',
-          title: `Internal link to ${errorPage.statusCode || 'error'} page`,
-          whyItMatters: 'Your site has internal links pointing to pages that return error status codes. This creates a poor user experience and wastes search engine crawl budget.',
-          howToFix: 'Update or remove the internal links on the source pages listed below, or restore the target page.',
-          evidence: {
-            url: errorPage.url,
-            httpStatus: errorPage.statusCode,
-            error: errorPage.error,
-            linkedFromPages: sourcePages,
-          },
-          impact: 4,
-          effort: 1,
-        });
+    if (!isNearDeadline()) {
+      const crawledErrorPages = crawlResults.filter(
+        (r) => r.statusCode >= 400 || (r.statusCode === 0 && r.error)
+      );
+      for (const errorPage of crawledErrorPages) {
+        const sourcePages = [...(linkSourceMap.get(errorPage.url) ?? [])];
+        if (sourcePages.length > 0) {
+          allIssues.push({
+            code: 'internal_link_to_error_page',
+            severity: errorPage.statusCode === 404 ? 'P1' : 'P2',
+            category: 'LINKS',
+            title: `Internal link to ${errorPage.statusCode || 'error'} page`,
+            whyItMatters: 'Your site has internal links pointing to pages that return error status codes. This creates a poor user experience and wastes search engine crawl budget.',
+            howToFix: 'Update or remove the internal links on the source pages listed below, or restore the target page.',
+            evidence: {
+              url: errorPage.url,
+              httpStatus: errorPage.statusCode,
+              error: errorPage.error,
+              linkedFromPages: sourcePages,
+            },
+            impact: 4,
+            effort: 1,
+          });
+        }
       }
+      completedPhases.push('error-page-links');
     }
 
     // ─────────────────────────────────────────────────────────────────────────
     // Phase 4: Accessibility checks (on first 5 pages to save time)
     //   Requires Playwright + @axe-core/playwright — skip in fetch mode
     // ─────────────────────────────────────────────────────────────────────────
-    if (crawler.isFetchMode) {
+    if (isNearDeadline()) {
+      // Skip a11y phase — approaching deadline
+    } else if (crawler.isFetchMode) {
       console.info('Skipping accessibility checks (Playwright unavailable)');
+      completedPhases.push('accessibility');
     } else {
       const pagesToCheckA11y = crawlResults.slice(0, 5).filter((r) => !r.error);
 
@@ -529,13 +781,16 @@ export async function runScan(ctx: ScanContext): Promise<void> {
           console.warn('Mobile accessibility check failed:', error_);
         }
       }
+      completedPhases.push('accessibility');
     }
 
     // ─────────────────────────────────────────────────────────────────────────
     // Phase 5: Performance checks
     //   Requires Playwright CDP — skip in fetch mode
     // ─────────────────────────────────────────────────────────────────────────
-    if (settings.includePerformance && !crawler.isFetchMode) {
+    if (isNearDeadline()) {
+      // Skip performance phase — approaching deadline
+    } else if (settings.includePerformance && !crawler.isFetchMode) {
       await updateProgress(scanRunId, {
         pagesDiscovered: crawlResults.length,
         pagesScanned: crawlResults.length,
@@ -730,8 +985,44 @@ export async function runScan(ctx: ScanContext): Promise<void> {
           console.warn('Mobile performance check failed:', error_);
         }
       }
+      completedPhases.push('performance');
     } else if (settings.includePerformance && crawler.isFetchMode) {
       console.info('Skipping performance checks (Playwright unavailable)');
+      completedPhases.push('performance');
+    } else {
+      // Performance disabled by user — still mark complete (not timed out)
+      completedPhases.push('performance');
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Timeout partial results: add info issue if phases were skipped
+    // ─────────────────────────────────────────────────────────────────────────
+    const allPhaseNames = [
+      'crawl', 'seo', 'content', 'images', 'resources', 'security',
+      'robots-sitemap', 'tech-duplicates', 'internal-linking', 'compression',
+      'sitemap-xref', 'ttfb', 'console-errors', 'broken-links',
+      'error-page-links', 'accessibility', 'performance',
+    ];
+    const skippedPhases = allPhaseNames.filter((p) => !completedPhases.includes(p));
+    if (skippedPhases.length > 0) {
+      allIssues.push({
+        code: 'scan_timeout_partial',
+        severity: 'P3',
+        category: 'PERFORMANCE',
+        title: 'Scan completed with partial results',
+        whyItMatters:
+          'The scan was approaching its time limit and some checks were skipped to ensure results were saved.',
+        howToFix:
+          'Try scanning fewer pages or reducing the scan depth.',
+        evidence: {
+          completedPhases,
+          skippedPhases,
+          elapsedMs: Date.now() - startTime,
+          deadlineMs: ctx.maxScanTimeMs ?? 540_000,
+        },
+        impact: 1,
+        effort: 1,
+      });
     }
 
     // ─────────────────────────────────────────────────────────────────────────

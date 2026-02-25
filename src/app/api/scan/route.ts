@@ -2,12 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { waitUntil } from '@vercel/functions';
 import { supabaseAdmin } from '@/lib/supabase-server';
 import { CreateScanRequestSchema, ScanSettingsSchema } from '@/lib/types';
-import { normalizeUrl } from '@/lib/url-utils';
+import { normalizeUrl, isSafeUrl } from '@/lib/url-utils';
 import { runScan } from '@/lib/scanner';
 import { rateLimit } from '@/lib/rate-limit';
 
-// Allow up to 300 seconds for the scan background work
-export const maxDuration = 300;
+// Allow up to 600 seconds (10 min) for the scan background work
+export const maxDuration = 600;
 
 export async function POST(request: NextRequest) {
   try {
@@ -15,7 +15,7 @@ export async function POST(request: NextRequest) {
     const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
       || request.headers.get('x-real-ip')
       || 'unknown';
-    const limit = rateLimit(ip, 10, 10 * 60 * 1000);
+    const limit = await rateLimit(ip, 10, 10 * 60 * 1000);
 
     if (!limit.allowed) {
       return NextResponse.json(
@@ -53,6 +53,14 @@ export async function POST(request: NextRequest) {
     } catch (e) {
       return NextResponse.json(
         { error: e instanceof Error ? e.message : 'Invalid URL' },
+        { status: 400 }
+      );
+    }
+
+    // SSRF protection: block private/internal addresses
+    if (!isSafeUrl(normalizedUrl)) {
+      return NextResponse.json(
+        { error: 'URL not allowed: private or internal addresses are blocked' },
         { status: 400 }
       );
     }

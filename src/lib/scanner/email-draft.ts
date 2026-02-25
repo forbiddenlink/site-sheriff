@@ -36,8 +36,8 @@ export function generateEmailDraft(
   const criticalCount = issues.filter((i) => i.severity === 'P0' || i.severity === 'P1').length;
   const totalCount = issues.length;
 
-  // Top 5 most impactful issues
-  const topFive = issues
+  // Top 5 most impactful issues (spread to avoid mutating the input array)
+  const topFive = [...issues]
     .sort((a, b) => {
       const severityOrder: Record<string, number> = { P0: 0, P1: 1, P2: 2, P3: 3 };
       const sDiff = (severityOrder[a.severity] ?? 4) - (severityOrder[b.severity] ?? 4);

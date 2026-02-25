@@ -24,3 +24,178 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* ───────────────────────────────────────────────
+   Print Stylesheet — must live in globals.css
+   so the cascade/specificity is respected by
+   Chrome, Safari, and Firefox print engines.
+   styled-jsx @media print is NOT reliable.
+   ─────────────────────────────────────────────── */
+@media print {
+  @page {
+    size: A4;
+    margin: 1.5cm 2cm;
+  }
+
+  html, body {
+    background: white !important;
+    color: #111 !important;
+    font-size: 11pt !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Hide interactive-only elements */
+  .no-print {
+    display: none !important;
+  }
+
+  main, main[class] {
+    padding: 0 !important;
+    min-height: auto !important;
+    background: white !important;
+  }
+
+  /* ── Reset Tailwind gradient-text trick ──
+     text-transparent + bg-clip-text uses -webkit-text-fill-color
+     which takes precedence over color. Must reset all three. */
+  * {
+    -webkit-text-fill-color: inherit !important;
+  }
+
+  .text-transparent,
+  [class*="bg-clip-text"] {
+    color: #111 !important;
+    -webkit-text-fill-color: #111 !important;
+    -webkit-background-clip: border-box !important;
+    background-clip: border-box !important;
+    background-image: none !important;
+  }
+
+  /* Base text colors for print */
+  h1, h2, h3, h4, p, span, div, pre, li, a, button, label {
+    color: #111 !important;
+  }
+
+  /* Preserve coloured text where meaningful */
+  .text-red-400, .text-red-500 {
+    color: #dc2626 !important;
+    -webkit-text-fill-color: #dc2626 !important;
+  }
+  .text-emerald-400, .text-emerald-500 {
+    color: #059669 !important;
+    -webkit-text-fill-color: #059669 !important;
+  }
+  .text-amber-400, .text-amber-500 {
+    color: #d97706 !important;
+    -webkit-text-fill-color: #d97706 !important;
+  }
+  .text-orange-400, .text-orange-500 {
+    color: #ea580c !important;
+    -webkit-text-fill-color: #ea580c !important;
+  }
+  .text-blue-400 {
+    color: #2563eb !important;
+    -webkit-text-fill-color: #2563eb !important;
+  }
+  .text-rose-400 {
+    color: #e11d48 !important;
+    -webkit-text-fill-color: #e11d48 !important;
+  }
+  .text-purple-400 {
+    color: #9333ea !important;
+    -webkit-text-fill-color: #9333ea !important;
+  }
+  .text-cyan-400 {
+    color: #0891b2 !important;
+    -webkit-text-fill-color: #0891b2 !important;
+  }
+  .text-slate-200 {
+    color: #1e293b !important;
+    -webkit-text-fill-color: #1e293b !important;
+  }
+  .text-slate-300 {
+    color: #334155 !important;
+    -webkit-text-fill-color: #334155 !important;
+  }
+  .text-slate-400, .text-slate-500 {
+    color: #64748b !important;
+    -webkit-text-fill-color: #64748b !important;
+  }
+  .text-white {
+    color: #111 !important;
+    -webkit-text-fill-color: #111 !important;
+  }
+
+  /* SVG score ring */
+  svg text { fill: #111 !important; }
+  svg circle { stroke: #d1d5db !important; }
+  svg circle:last-of-type { stroke: #10b981 !important; }
+
+  /* Near-transparent backgrounds → solid white with visible border */
+  [class*="bg-white\\/"], [class*="backdrop-blur"] {
+    background: white !important;
+    border: 1px solid #d1d5db !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+
+  /* Severity & category badge backgrounds */
+  [class*="bg-red-500\\/"] { background: #fee2e2 !important; border-color: #fca5a5 !important; }
+  [class*="bg-orange-500\\/"] { background: #ffedd5 !important; border-color: #fdba74 !important; }
+  [class*="bg-amber-500\\/"] { background: #fef3c7 !important; border-color: #fcd34d !important; }
+  [class*="bg-emerald-500\\/"] { background: #d1fae5 !important; border-color: #6ee7b7 !important; }
+  [class*="bg-blue-500\\/"] { background: #dbeafe !important; border-color: #93c5fd !important; }
+  [class*="bg-rose-500\\/"] { background: #ffe4e6 !important; border-color: #fda4af !important; }
+  [class*="bg-purple-500\\/"] { background: #f3e8ff !important; border-color: #c084fc !important; }
+  [class*="bg-cyan-500\\/"] { background: #cffafe !important; border-color: #67e8f9 !important; }
+  [class*="bg-slate-500\\/"] { background: #f1f5f9 !important; border-color: #cbd5e1 !important; }
+
+  /* Solid severity colours for issue distribution bar */
+  .bg-red-500 { background: #ef4444 !important; }
+  .bg-orange-500 { background: #f97316 !important; }
+  .bg-amber-500 { background: #f59e0b !important; }
+  .bg-emerald-500 { background: #10b981 !important; }
+
+  /* Category score progress bars — solid colours */
+  .bg-gradient-to-r, [class*="bg-linear"] {
+    background-image: none !important;
+  }
+  [class*="from-emerald"] { background: #10b981 !important; }
+  [class*="from-amber"] { background: #f59e0b !important; }
+  [class*="from-red"] { background: #ef4444 !important; }
+
+  /* Evidence boxes */
+  .font-mono.text-xs { font-size: 9pt !important; }
+
+  /* Each issue avoids page-break mid-item */
+  .divide-y > div { break-inside: avoid; }
+
+  /* No images in print (screenshots, social previews) */
+  img[alt*="Screenshot"], img[alt*="preview"], img[alt*="OG"] {
+    display: none !important;
+  }
+
+  /* No lightbox or fixed overlays */
+  .fixed { display: none !important; }
+
+  /* Section spacing */
+  .mb-20 { margin-bottom: 1cm !important; break-before: auto; }
+  .mb-8 { margin-bottom: 0.5cm !important; }
+  .rounded-3xl, .rounded-2xl, .rounded-xl { border-radius: 6px !important; }
+
+  /* Print header visible */
+  .print-header { display: block !important; }
+
+  /* Links in evidence */
+  a[href] {
+    color: #059669 !important;
+    -webkit-text-fill-color: #059669 !important;
+    text-decoration: underline !important;
+  }
+}
+
+/* Base rule: hide print-header on screen */
+.print-header {
+  display: none;
+}

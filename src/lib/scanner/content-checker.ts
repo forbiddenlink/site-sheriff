@@ -1,3 +1,4 @@
+import * as cheerio from 'cheerio';
 import type { CrawlResult, ImageData, HeadingData } from './crawler';
 
 interface ContentIssue {
@@ -298,7 +299,7 @@ function checkKeywordStuffing(url: string, plainText: string): ContentIssue[] {
     .map((w) => w.replaceAll(/[^a-z]/g, ''))
     .filter((w) => w.length > 2 && !STOP_WORDS.has(w));
 
-  if (words.length <= 100) return [];
+  if (words.length <= 200) return [];
 
   const freq = new Map<string, number>();
   for (const w of words) {
@@ -315,7 +316,7 @@ function checkKeywordStuffing(url: string, plainText: string): ContentIssue[] {
   }
 
   const density = topCount / words.length;
-  if (density > 0.05) {
+  if (density > 0.07) {
     return [{
       code: 'keyword_stuffing',
       severity: 'P2',
@@ -340,9 +341,103 @@ function checkKeywordStuffing(url: string, plainText: string): ContentIssue[] {
   return [];
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+function checkDeprecatedHtmlTags(url: string, html: string): ContentIssue[] {
+  const $ = cheerio.load(html);
+  const deprecatedTags = ['center', 'font', 'marquee', 'blink', 'big', 'strike', 'tt'];
+  const found: string[] = [];
+
+  for (const tag of deprecatedTags) {
+    if ($(tag).length > 0) {
+      found.push(`<${tag}> (${$(tag).length})`);
+    }
+  }
+
+  if (found.length === 0) return [];
+
+  return [{
+    code: 'deprecated_html_tags',
+    severity: 'P3',
+    category: 'CONTENT',
+    title: 'Deprecated HTML tags found',
+    whyItMatters:
+      'Deprecated HTML elements are no longer part of the HTML standard and may not render correctly in modern browsers. They signal outdated code.',
+    howToFix:
+      'Replace deprecated tags with modern CSS equivalents. For example, use CSS text-align instead of <center>, CSS font properties instead of <font>.',
+    evidence: { url, deprecated: found.join(', ') },
+    impact: 2,
+    effort: 2,
+  }];
+}
+
+function checkFormLabels(url: string, html: string): ContentIssue[] {
+  const $ = cheerio.load(html);
+  const unlabeled: string[] = [];
+
+  $('input').each((_i, el) => {
+    const type = ($(el).attr('type') ?? 'text').toLowerCase();
+    if (['hidden', 'submit', 'button', 'reset', 'image'].includes(type)) return;
+
+    const id = $(el).attr('id');
+    const hasAriaLabel = !!$(el).attr('aria-label');
+    const hasAriaLabelledBy = !!$(el).attr('aria-labelledby');
+    const hasAssociatedLabel = id ? $(`label[for="${id}"]`).length > 0 : false;
+    const hasWrappingLabel = $(el).closest('label').length > 0;
+
+    if (!hasAriaLabel && !hasAriaLabelledBy && !hasAssociatedLabel && !hasWrappingLabel) {
+      const name = $(el).attr('name') || $(el).attr('id') || type;
+      unlabeled.push(name);
+    }
+  });
+
+  if (unlabeled.length === 0) return [];
+
+  return [{
+    code: 'form_missing_labels',
+    severity: 'P2',
+    category: 'ACCESSIBILITY',
+    title: 'Form inputs missing labels',
+    whyItMatters:
+      'Input fields without associated labels are inaccessible to screen reader users and make forms harder to use for everyone.',
+    howToFix:
+      'Add a <label for="inputId"> element for each input, or use aria-label or aria-labelledby attributes.',
+    evidence: { url, unlabeledInputs: unlabeled.slice(0, 10).join(', '), count: unlabeled.length },
+    impact: 4,
+    effort: 2,
+  }];
+}
+
+function checkIframeTitles(url: string, html: string): ContentIssue[] {
+  const $ = cheerio.load(html);
+  const untitled: string[] = [];
+
+  $('iframe').each((_i, el) => {
+    const title = $(el).attr('title');
+    if (!title || title.trim().length === 0) {
+      const src = $(el).attr('src') ?? '<unknown>';
+      untitled.push(src.slice(0, 80));
+    }
+  });
+
+  if (untitled.length === 0) return [];
+
+  return [{
+    code: 'iframe_missing_title',
+    severity: 'P3',
+    category: 'ACCESSIBILITY',
+    title: 'Iframes missing title attribute',
+    whyItMatters:
+      'Iframes without a title attribute are not accessible to screen reader users, who rely on the title to understand the embedded content.',
+    howToFix:
+      'Add a descriptive title attribute to each <iframe> element that explains its content.',
+    evidence: { url, untitledIframes: untitled.slice(0, 5).join(', '), count: untitled.length },
+    impact: 3,
+    effort: 1,
+  }];
+}
+
+// ───────────────────────────────────────────────────────────────────────────────
 // Main content quality checker
-// ─────────────────────────────────────────────────────────────────────────────
+// ───────────────────────────────────────────────────────────────────────────────
 
 export function checkContentQuality(result: CrawlResult): ContentIssue[] {
   const isHomepage = new URL(result.url).pathname === '/';
@@ -354,5 +449,8 @@ export function checkContentQuality(result: CrawlResult): ContentIssue[] {
     ...checkImageAltText(result.url, result.images),
     ...checkHeadingHierarchy(result.url, result.headings),
     ...checkKeywordStuffing(result.url, plainText),
+    ...checkDeprecatedHtmlTags(result.url, result.html),
+    ...checkFormLabels(result.url, result.html),
+    ...checkIframeTitles(result.url, result.html),
   ];
 }

@@ -99,6 +99,8 @@ function checkRenderBlockingJs($: cheerio.CheerioAPI, url: string): ResourceIssu
     const hasDefer = $(el).attr('defer') !== undefined;
     if (!hasAsync && !hasDefer) {
       const src = $(el).attr('src') ?? '<unknown>';
+      // Skip framework scripts that must be synchronous (React hydration, etc.)
+      if (/\/_next\/|__next|__NEXT|__nuxt|nuxt\.js|chunks\/framework|chunks\/webpack/i.test(src)) return;
       blocking.push(src);
     }
   });
@@ -255,6 +257,11 @@ function checkUnminifiedInlineCode($: cheerio.CheerioAPI, url: string): Resource
 
   // Check inline scripts (no src attribute = inline)
   $('script:not([src])').each((_i, el) => {
+    // Skip framework data scripts (e.g., Next.js __NEXT_DATA__, JSON-LD)
+    const scriptId = $(el).attr('id') ?? '';
+    const scriptType = $(el).attr('type') ?? '';
+    if (scriptId === '__NEXT_DATA__' || scriptType === 'application/json' || scriptType === 'application/ld+json') return;
+
     const content = $(el).text().trim();
     if (content.length < MIN_INLINE_CHARS) return;
 

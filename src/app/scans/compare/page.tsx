@@ -3,6 +3,7 @@
 import { useEffect, useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+import { timeAgo } from '@/lib/utils';
 
 interface ScanSummary {
   overallScore: number;
@@ -41,18 +42,6 @@ const SEVERITY_LABELS: Record<string, { label: string; color: string }> = {
   P2: { label: 'Info', color: 'text-sky-400' },
   P3: { label: 'Low', color: 'text-slate-400' },
 };
-
-function timeAgo(dateStr: string): string {
-  const utcDate = dateStr.endsWith('Z') || dateStr.includes('+') ? dateStr : dateStr + 'Z';
-  const seconds = Math.floor((Date.now() - new Date(utcDate).getTime()) / 1000);
-  if (seconds < 60) return `${seconds}s ago`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
-}
 
 function ScoreCircle({ score, size = 100 }: { score: number; size?: number }) {
   const strokeWidth = 6;

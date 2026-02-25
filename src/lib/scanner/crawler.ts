@@ -40,6 +40,10 @@ export interface CrawlResult {
   scriptCount: number;
   stylesheetCount: number;
   lang: string | null;
+  contentType: string | null;
+  consoleErrors: string[];
+  ttfbMs: number | null;
+  httpVersion: string | null;
 }
 
 export interface CrawlerOptions {
@@ -50,8 +54,8 @@ export interface CrawlerOptions {
 }
 
 const DEFAULT_OPTIONS: CrawlerOptions = {
-  maxPages: 25,
-  maxDepth: 3,
+  maxPages: 50,
+  maxDepth: 5,
   timeout: 30000,
   screenshotMode: 'above-fold',
 };
@@ -117,14 +121,25 @@ export class Crawler {
         // Report progress
         this.onProgress?.(this.queue.length + this.visited.size + 1, this.visited.size, url);
 
-        // Crawl the page
-        const result = await this.crawlPage(url);
+        // Crawl the page with retry logic (max 2 retries for network errors)
+        let result: CrawlResult;
+        let retries = 2;
+        while (retries >= 0) {
+          result = await this.crawlPage(url);
+          // Retry on network errors (status 0) but not on HTTP errors
+          if (result.error && result.statusCode === 0 && retries > 0) {
+            retries--;
+            await new Promise(r => setTimeout(r, 1000)); // 1s backoff
+            continue;
+          }
+          break;
+        }
         this.visited.add(url);
-        results.push(result);
+        results.push(result!);
 
         // Add internal links to queue
-        if (!result.error) {
-          for (const link of result.links) {
+        if (!result!.error) {
+          for (const link of result!.links) {
             if (
               link.isInternal &&
               !this.visited.has(link.href) &&
@@ -159,6 +174,7 @@ export class Crawler {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), this.options.timeout);
 
+      const fetchStart = Date.now();
       const response = await fetch(url, {
         signal: controller.signal,
         headers: {
@@ -167,6 +183,7 @@ export class Crawler {
         },
         redirect: 'follow',
       });
+      const ttfbMs = Date.now() - fetchStart;
 
       clearTimeout(timeoutId);
 
@@ -187,7 +204,10 @@ export class Crawler {
         cookies.push(...setCookie.split(/,(?=\s*\w+=)/));
       }
 
-      return this.parseHtml(url, statusCode, loadTimeMs, html, responseHeaders, cookies);
+      const result = this.parseHtml(url, statusCode, loadTimeMs, html, responseHeaders, cookies);
+      result.contentType = responseHeaders['content-type'] || null;
+      result.ttfbMs = ttfbMs;
+      return result;
     } catch (error) {
       return {
         url,
@@ -211,6 +231,10 @@ export class Crawler {
         scriptCount: 0,
         stylesheetCount: 0,
         lang: null,
+        contentType: null,
+        consoleErrors: [],
+        ttfbMs: null,
+        httpVersion: null,
       };
     }
   }
@@ -221,6 +245,14 @@ export class Crawler {
     const page = await this.browser!.newPage();
     const startTime = Date.now();
 
+    // Collect JS console errors
+    const consoleErrors: string[] = [];
+    page.on('console', msg => {
+      if (msg.type() === 'error') {
+        consoleErrors.push(msg.text().slice(0, 200));
+      }
+    });
+
     try {
       // Navigate to page
       const response = await page.goto(url, {
@@ -230,6 +262,12 @@ export class Crawler {
 
       const loadTimeMs = Date.now() - startTime;
       const statusCode = response?.status() ?? 0;
+
+      // Measure TTFB via Navigation Timing API
+      const ttfbMs = await page.evaluate(() => {
+        const nav = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming;
+        return nav ? Math.round(nav.responseStart - nav.startTime) : null;
+      }).catch(() => null);
 
       // Get HTML content
       const html = await page.content();
@@ -246,6 +284,9 @@ export class Crawler {
       const cookies = browserCookies.map(c => `${c.name}=${c.value}; ${c.secure ? 'Secure; ' : ''}${c.httpOnly ? 'HttpOnly; ' : ''}SameSite=${c.sameSite}`);
 
       const result = this.parseHtml(url, statusCode, loadTimeMs, html, responseHeaders, cookies);
+      result.contentType = responseHeaders['content-type'] || null;
+      result.consoleErrors = consoleErrors.slice(0, 10);
+      result.ttfbMs = ttfbMs;
 
       // Take screenshot if enabled
       if (this.options.screenshotMode !== 'none') {
@@ -285,6 +326,10 @@ export class Crawler {
         scriptCount: 0,
         stylesheetCount: 0,
         lang: null,
+        contentType: null,
+        consoleErrors: [],
+        ttfbMs: null,
+        httpVersion: null,
       };
     } finally {
       await page.close();
@@ -398,6 +443,10 @@ export class Crawler {
       scriptCount,
       stylesheetCount,
       lang,
+      contentType: null,
+      consoleErrors: [],
+      ttfbMs: null,
+      httpVersion: null,
     };
   }
 

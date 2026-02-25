@@ -3,6 +3,7 @@
 import { useState, useEffect, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
+import { timeAgo } from '@/lib/utils';
 
 // ── Types for recent scans ──────────────────────────────────────────────────
 interface RecentScan {
@@ -15,19 +16,6 @@ interface RecentScan {
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
-function timeAgo(dateString: string): string {
-  const utcDate = dateString.endsWith('Z') || dateString.includes('+') ? dateString : dateString + 'Z';
-  const diff = Date.now() - new Date(utcDate).getTime();
-  const seconds = Math.floor(diff / 1000);
-  if (seconds < 60) return `${seconds}s ago`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes} min ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
-}
-
 function scoreColor(score: number): string {
   if (score >= 80) return 'text-emerald-400';
   if (score >= 50) return 'text-amber-400';
@@ -153,8 +141,8 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
-  const [maxPages, setMaxPages] = useState(25);
-  const [maxDepth, setMaxDepth] = useState(3);
+  const [maxPages, setMaxPages] = useState(50);
+  const [maxDepth, setMaxDepth] = useState(5);
   const [screenshotMode, setScreenshotMode] = useState<'none' | 'above-fold' | 'full-page'>('above-fold');
   const [includePerformance, setIncludePerformance] = useState(true);
 
@@ -306,14 +294,14 @@ export default function Home() {
                         id="maxPages"
                         type="range"
                         min={1}
-                        max={200}
+                        max={500}
                         value={maxPages}
                         onChange={(e) => setMaxPages(Number(e.target.value))}
                         className="flex-1 h-1.5 rounded-full appearance-none bg-white/6 accent-emerald-500 cursor-pointer"
                       />
                       <span className="text-sm font-mono text-slate-300 w-8 text-right">{maxPages}</span>
                     </div>
-                    <p className="text-[10px] text-slate-600 mt-1">Number of pages to crawl (1–200)</p>
+                    <p className="text-[10px] text-slate-600 mt-1">Number of pages to crawl (1–500)</p>
                   </div>
 
                   {/* Max Depth */}
@@ -326,14 +314,14 @@ export default function Home() {
                         id="maxDepth"
                         type="range"
                         min={1}
-                        max={5}
+                        max={10}
                         value={maxDepth}
                         onChange={(e) => setMaxDepth(Number(e.target.value))}
                         className="flex-1 h-1.5 rounded-full appearance-none bg-white/6 accent-emerald-500 cursor-pointer"
                       />
                       <span className="text-sm font-mono text-slate-300 w-4 text-right">{maxDepth}</span>
                     </div>
-                    <p className="text-[10px] text-slate-600 mt-1">How many links deep to follow (1–5)</p>
+                    <p className="text-[10px] text-slate-600 mt-1">How many links deep to follow (1–10)</p>
                   </div>
                 </div>
 
@@ -397,7 +385,7 @@ export default function Home() {
             src="/hero-illustration.png"
             alt="SiteSheriff abstract app interface scan"
             fill
-            className="object-contain drop-shadow-2xl hover:scale-105 transition-transform duration-700 ease-out"
+            className="object-contain drop-shadow-2xl hover:scale-105 transition-transform duration-700 ease-out rounded-2xl"
             priority
           />
         </div>
