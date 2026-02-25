@@ -14,7 +14,8 @@ import { checkImageOptimization } from './image-checker';
 import { checkResourceOptimization } from './resource-checker';
 import { analyzeInternalLinking } from './linking-analyzer';
 import { checkEEAT } from './eeat-checker';
-import { checkAIReadiness } from './ai-readiness-checker';
+import { checkAIReadiness, checkLlmsTxt } from './ai-readiness-checker';
+import { checkContentSimilarity } from './content-similarity-checker';
 import type { ScanSettings, ScanProgress, ScanSummary, LinkData } from '../types';
 
 export { Crawler } from './crawler';
@@ -218,6 +219,15 @@ export async function runScan(ctx: ScanContext): Promise<void> {
           allIssues.push(...aiIssues);
         }
       }
+
+      // Site-level: check for llms.txt (AI crawler instructions)
+      try {
+        const llmsTxtIssues = await checkLlmsTxt(normalizedUrl);
+        allIssues.push(...llmsTxtIssues);
+      } catch {
+        console.warn('llms.txt check failed');
+      }
+
       completedPhases.push('ai-readiness');
     }
 
@@ -306,6 +316,10 @@ export async function runScan(ctx: ScanContext): Promise<void> {
       if (htmlPages.length > 1) {
         const dupeIssues = checkDuplicates(htmlPages);
         allIssues.push(...dupeIssues);
+
+        // Content similarity detection (cross-page)
+        const similarityIssues = checkContentSimilarity(htmlPages);
+        allIssues.push(...similarityIssues);
       }
 
       // Validate OG image URLs actually resolve

@@ -256,3 +256,59 @@ export function checkAIReadiness(result: CrawlResult): AIReadinessIssue[] {
     ...checkContentSummary($, result.url, result.metaDescription),
   ];
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Site-level checks (run once per scan)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Check for llms.txt file at the root of the site.
+ *
+ * llms.txt is an emerging standard (similar to robots.txt) that provides
+ * instructions and context for AI crawlers like ChatGPT, Perplexity, and Claude.
+ * See: https://llmstxt.org/
+ *
+ * @param baseUrl - The base URL of the site (e.g., "https://example.com")
+ * @returns An array with a single issue if llms.txt is missing, empty otherwise
+ */
+export async function checkLlmsTxt(baseUrl: string): Promise<AIReadinessIssue[]> {
+  try {
+    const url = new URL('/llms.txt', baseUrl);
+    const response = await fetch(url.toString(), {
+      method: 'GET',
+      headers: {
+        'User-Agent': 'SiteSheriff/1.0 (AI Readiness Checker)',
+      },
+      signal: AbortSignal.timeout(5000),
+    });
+
+    if (response.ok) {
+      const text = await response.text();
+      // Basic validation: should have some content and look like a text file
+      if (text.trim().length > 0) {
+        return []; // llms.txt exists and has content
+      }
+    }
+
+    // 404 or empty file - suggest adding llms.txt
+    return [{
+      code: 'missing_llms_txt',
+      severity: 'P3' as const,
+      category: 'SEO' as const,
+      title: 'No llms.txt file found',
+      whyItMatters:
+        'llms.txt is an emerging standard for providing AI crawlers with site context, content guidelines, and preferred citation formats. Sites with llms.txt may receive better AI-generated summaries and citations.',
+      howToFix:
+        'Create a /llms.txt file at your site root with: site description, key content areas, preferred citation format, and any AI-specific instructions. See https://llmstxt.org/ for the specification.',
+      evidence: {
+        url: url.toString(),
+        expected: 'A text file with AI crawler instructions',
+      },
+      impact: 1,
+      effort: 1,
+    }];
+  } catch {
+    // Network error or timeout - don't report as missing, just skip
+    return [];
+  }
+}

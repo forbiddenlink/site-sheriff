@@ -1,8 +1,10 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { checkEEAT } from './eeat-checker';
 import { checkSEO } from './seo-checker';
 import { checkImageOptimization } from './image-checker';
 import { checkResourceOptimization } from './resource-checker';
+import { checkLlmsTxt } from './ai-readiness-checker';
+import { checkContentSimilarity } from './content-similarity-checker';
 import type { CrawlResult } from './crawler';
 
 /**
@@ -450,5 +452,230 @@ describe('LCP preload detection', () => {
 
     const lcpIssue = issues.find(i => i.code === 'lcp_image_not_preloaded');
     expect(lcpIssue).toBeDefined();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// llms.txt Detection Tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('llms.txt detection', () => {
+  const originalFetch = global.fetch;
+
+  beforeEach(() => {
+    vi.resetAllMocks();
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  it('should flag when llms.txt is missing (404)', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 404,
+    });
+
+    const issues = await checkLlmsTxt('https://example.com');
+
+    expect(issues).toHaveLength(1);
+    expect(issues[0].code).toBe('missing_llms_txt');
+    expect(issues[0].severity).toBe('P3');
+  });
+
+  it('should NOT flag when llms.txt exists with content', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => '# Site Name\nThis site provides...',
+    });
+
+    const issues = await checkLlmsTxt('https://example.com');
+
+    expect(issues).toHaveLength(0);
+  });
+
+  it('should flag when llms.txt exists but is empty', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => '',
+    });
+
+    const issues = await checkLlmsTxt('https://example.com');
+
+    expect(issues).toHaveLength(1);
+    expect(issues[0].code).toBe('missing_llms_txt');
+  });
+
+  it('should NOT flag on network error (skip gracefully)', async () => {
+    global.fetch = vi.fn().mockRejectedValue(new Error('Network error'));
+
+    const issues = await checkLlmsTxt('https://example.com');
+
+    expect(issues).toHaveLength(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Content Similarity Detection Tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('content similarity detection', () => {
+  it('should detect duplicate content (>90% similarity)', () => {
+    const page1 = createCrawlResult({
+      url: 'https://example.com/page-1',
+      html: `
+        <html><body>
+          <main>
+            <h1>Welcome to Our Product</h1>
+            <p>This is a comprehensive guide to using our product effectively.
+            Our team has worked hard to create the best experience for our users.
+            Learn how to get started with our amazing features and tools.
+            The following sections will help you understand everything you need to know.</p>
+          </main>
+        </body></html>
+      `,
+      wordCount: 100,
+    });
+
+    const page2 = createCrawlResult({
+      url: 'https://example.com/page-2',
+      html: `
+        <html><body>
+          <main>
+            <h1>Welcome to Our Product</h1>
+            <p>This is a comprehensive guide to using our product effectively.
+            Our team has worked hard to create the best experience for our users.
+            Learn how to get started with our amazing features and tools.
+            The following sections will help you understand everything you need to know.</p>
+          </main>
+        </body></html>
+      `,
+      wordCount: 100,
+    });
+
+    const issues = checkContentSimilarity([page1, page2]);
+
+    const dupeIssue = issues.find(i => i.code === 'duplicate_content');
+    expect(dupeIssue).toBeDefined();
+    expect(dupeIssue?.severity).toBe('P2');
+  });
+
+  it('should detect high similarity (70-90%)', () => {
+    // These pages share ~80% of their content but differ in key areas
+    const sharedContent = `
+      This product offers comprehensive features for your business needs.
+      Our team has developed innovative solutions that help companies grow.
+      Get started today with our enterprise-grade tools and support.
+      We provide excellent customer service and technical assistance.
+      Our platform integrates seamlessly with your existing workflows.
+      Thousands of customers trust us to deliver reliable solutions.
+    `;
+
+    const page1 = createCrawlResult({
+      url: 'https://example.com/product-a',
+      html: `
+        <html><body>
+          <main>
+            <h1>Product A - Best Solution</h1>
+            <p>${sharedContent}</p>
+            <p>Product A specific: Advanced analytics and reporting dashboard.</p>
+          </main>
+        </body></html>
+      `,
+      wordCount: 100,
+    });
+
+    const page2 = createCrawlResult({
+      url: 'https://example.com/product-b',
+      html: `
+        <html><body>
+          <main>
+            <h1>Product B - Premium Solution</h1>
+            <p>${sharedContent}</p>
+            <p>Product B specific: Enhanced security features and compliance tools.</p>
+          </main>
+        </body></html>
+      `,
+      wordCount: 100,
+    });
+
+    const issues = checkContentSimilarity([page1, page2]);
+
+    // Should find either duplicate_content or high_content_similarity
+    const similarityIssue = issues.find(i =>
+      i.code === 'duplicate_content' || i.code === 'high_content_similarity'
+    );
+    expect(similarityIssue).toBeDefined();
+  });
+
+  it('should NOT flag unique content pages', () => {
+    const page1 = createCrawlResult({
+      url: 'https://example.com/about',
+      html: `
+        <html><body>
+          <main>
+            <h1>About Our Company</h1>
+            <p>Founded in 2020, we have been working on innovative solutions
+            that transform how businesses operate in the digital age.
+            Our mission is to empower teams with cutting-edge technology.</p>
+          </main>
+        </body></html>
+      `,
+      wordCount: 100,
+    });
+
+    const page2 = createCrawlResult({
+      url: 'https://example.com/pricing',
+      html: `
+        <html><body>
+          <main>
+            <h1>Pricing Plans</h1>
+            <p>Choose the perfect plan for your organization. We offer
+            flexible monthly and annual subscriptions with various tiers.
+            Enterprise customers can contact sales for custom solutions.</p>
+          </main>
+        </body></html>
+      `,
+      wordCount: 100,
+    });
+
+    const issues = checkContentSimilarity([page1, page2]);
+
+    const similarityIssue = issues.find(i =>
+      i.code === 'duplicate_content' || i.code === 'high_content_similarity'
+    );
+    expect(similarityIssue).toBeUndefined();
+  });
+
+  it('should skip pages with too little content', () => {
+    const page1 = createCrawlResult({
+      url: 'https://example.com/empty-1',
+      html: '<html><body><main><p>Short</p></main></body></html>',
+      wordCount: 10,
+    });
+
+    const page2 = createCrawlResult({
+      url: 'https://example.com/empty-2',
+      html: '<html><body><main><p>Brief</p></main></body></html>',
+      wordCount: 10,
+    });
+
+    const issues = checkContentSimilarity([page1, page2]);
+
+    expect(issues).toHaveLength(0);
+  });
+
+  it('should require at least 2 pages to compare', () => {
+    const page1 = createCrawlResult({
+      url: 'https://example.com/',
+      html: '<html><body><main><p>Content here</p></main></body></html>',
+      wordCount: 100,
+    });
+
+    const issues = checkContentSimilarity([page1]);
+
+    expect(issues).toHaveLength(0);
   });
 });
