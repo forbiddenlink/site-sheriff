@@ -1,5 +1,32 @@
 import type { CrawlResult } from './crawler';
 
+/**
+ * Detect if a URL is likely an authenticated/dashboard page that shouldn't
+ * be prioritized for SEO issues (since search engines can't access them).
+ */
+function isLikelyAuthPage(url: string): boolean {
+  try {
+    const pathname = new URL(url).pathname.toLowerCase();
+    const authPatterns = [
+      '/dashboard',
+      '/admin',
+      '/account',
+      '/settings',
+      '/profile',
+      '/billing',
+      '/app/',      // Common SaaS app routes
+      '/console',
+      '/portal',
+      '/my-',       // my-account, my-orders, etc.
+      '/user/',
+      '/member/',
+    ];
+    return authPatterns.some(pattern => pathname.includes(pattern));
+  } catch {
+    return false;
+  }
+}
+
 export interface SEOIssue {
   code: string;
   severity: 'P0' | 'P1' | 'P2' | 'P3';
@@ -28,17 +55,22 @@ export function checkSEO(result: CrawlResult): SEOIssue[] {
   let isHomepage = false;
   try { isHomepage = ['/', ''].includes(new URL(result.url).pathname); } catch { /* ignore */ }
 
-  // Missing title
+  // Detect auth/dashboard pages - downgrade their SEO issues since search engines can't access them
+  const isAuthPage = isLikelyAuthPage(result.url);
+
+  // Missing title - downgrade for auth pages
   if (!result.title) {
     issues.push({
       code: 'missing_title',
-      severity: 'P0',
+      severity: isAuthPage ? 'P3' : 'P0',
       category: 'SEO',
-      title: 'Missing page title',
-      whyItMatters: 'Page titles are critical for SEO and appear in search results. Missing titles hurt rankings and click-through rates.',
+      title: isAuthPage ? 'Missing page title (dashboard page)' : 'Missing page title',
+      whyItMatters: isAuthPage
+        ? 'Page titles help with browser tabs and accessibility. This appears to be a dashboard/auth page, so SEO impact is minimal.'
+        : 'Page titles are critical for SEO and appear in search results. Missing titles hurt rankings and click-through rates.',
       howToFix: 'Add a <title> tag inside the <head> section with a descriptive, unique title (50-60 characters).',
       evidence: { url: result.url },
-      impact: 5,
+      impact: isAuthPage ? 1 : 5,
       effort: 1,
     });
   } else if (result.title.length < 10) {
@@ -106,17 +138,19 @@ export function checkSEO(result: CrawlResult): SEOIssue[] {
     });
   }
 
-  // Missing H1
+  // Missing H1 - downgrade for auth pages since they're not indexed
   if (!result.h1) {
     issues.push({
       code: 'missing_h1',
-      severity: 'P1',
+      severity: isAuthPage ? 'P3' : 'P1',
       category: 'SEO',
-      title: 'Missing H1 heading',
-      whyItMatters: 'H1 headings help search engines understand page content and are important for accessibility.',
+      title: isAuthPage ? 'Missing H1 heading (dashboard page)' : 'Missing H1 heading',
+      whyItMatters: isAuthPage
+        ? 'H1 headings help with accessibility. This appears to be a dashboard/auth page, so SEO impact is minimal.'
+        : 'H1 headings help search engines understand page content and are important for accessibility.',
       howToFix: 'Add a single, descriptive <h1> tag that summarizes the page content.',
       evidence: { url: result.url },
-      impact: 4,
+      impact: isAuthPage ? 1 : 4,
       effort: 1,
     });
   }
