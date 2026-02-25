@@ -225,31 +225,31 @@ export default function ScanPage() {
 
   useEffect(() => {
     if (!id) return;
+    let cancelled = false;
 
     const fetchData = async () => {
       try {
         const res = await fetch(`/api/scan/${id}`);
-        if (!res.ok) {
-          throw new Error('Scan not found');
-        }
+        if (!res.ok) throw new Error('Scan not found');
         const json = await res.json();
+        if (cancelled) return;
         setData(json);
+
+        // Schedule next poll if still in progress
+        if (json.status === 'QUEUED' || json.status === 'RUNNING') {
+          setTimeout(() => { if (!cancelled) fetchData(); }, 2000);
+        }
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load scan');
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : 'Failed to load scan');
+        }
       }
     };
 
     fetchData();
 
-    // Poll if still running
-    const interval = setInterval(() => {
-      if (data?.status === 'QUEUED' || data?.status === 'RUNNING') {
-        fetchData();
-      }
-    }, 2000);
-
-    return () => clearInterval(interval);
-  }, [id, data?.status]);
+    return () => { cancelled = true; };
+  }, [id]);
 
   if (error) {
     return (
@@ -431,6 +431,34 @@ export default function ScanPage() {
               </div>
             </div>
 
+            {/* Summary Stats */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
+              <div className="bg-white/2 border border-white/6 backdrop-blur-md rounded-2xl p-5 text-center">
+                <div className="text-2xl font-bold tracking-tighter text-transparent bg-clip-text bg-[linear-gradient(to_bottom,#fff,#94a3b8)]">
+                  {data.pages.length}
+                </div>
+                <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-1">Pages Crawled</div>
+              </div>
+              <div className="bg-white/2 border border-white/6 backdrop-blur-md rounded-2xl p-5 text-center">
+                <div className="text-2xl font-bold tracking-tighter text-transparent bg-clip-text bg-[linear-gradient(to_bottom,#fff,#94a3b8)]">
+                  {data.issues.length}
+                </div>
+                <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-1">Issues Found</div>
+              </div>
+              <div className="bg-white/2 border border-white/6 backdrop-blur-md rounded-2xl p-5 text-center">
+                <div className="text-2xl font-bold tracking-tighter text-red-400">
+                  {data.issues.filter((i: { severity: string }) => i.severity === 'P0' || i.severity === 'P1').length}
+                </div>
+                <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-1">Critical / High</div>
+              </div>
+              <div className="bg-white/2 border border-white/6 backdrop-blur-md rounded-2xl p-5 text-center">
+                <div className="text-2xl font-bold tracking-tighter text-emerald-400">
+                  {data.issues.filter((i: { severity: string; effort: number | null }) => i.effort !== null && i.effort <= 2).length}
+                </div>
+                <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-1">Quick Wins</div>
+              </div>
+            </div>
+
             {/* Tech Stack */}
             {data.summary.technologies && data.summary.technologies.length > 0 && (
               <div className="bg-white/2 border border-white/6 backdrop-blur-md rounded-3xl p-8 mb-8">
@@ -455,9 +483,23 @@ export default function ScanPage() {
                   <h2 className="text-sm font-medium text-white tracking-wide">
                     Identified Anomalies
                   </h2>
-                  <span className="text-xs font-mono text-slate-500 bg-white/4 px-2.5 py-1 rounded-lg">
-                    COUNT: {filteredIssues.length}{activeCategory ? ` / ${data.issues.length}` : ''}
-                  </span>
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => {
+                        if (expandedIssues.size === filteredIssues.length) {
+                          setExpandedIssues(new Set());
+                        } else {
+                          setExpandedIssues(new Set(filteredIssues.map((i) => i.id)));
+                        }
+                      }}
+                      className="text-[10px] font-bold text-slate-400 uppercase tracking-widest hover:text-white transition-colors"
+                    >
+                      {expandedIssues.size === filteredIssues.length && filteredIssues.length > 0 ? 'Collapse All' : 'Expand All'}
+                    </button>
+                    <span className="text-xs font-mono text-slate-500 bg-white/4 px-2.5 py-1 rounded-lg">
+                      COUNT: {filteredIssues.length}{activeCategory ? ` / ${data.issues.length}` : ''}
+                    </span>
+                  </div>
                 </div>
                 <div className="no-print flex flex-wrap items-center gap-2">
                   <button
@@ -595,11 +637,18 @@ export default function ScanPage() {
                                 <div className="bg-white/2 border border-white/6 rounded-xl p-4 font-mono text-xs text-slate-300 space-y-1.5 overflow-x-auto">
                                   {Object.entries(issue.evidence).map(([key, value]) => {
                                     if (value === null || value === undefined) return null;
+                                    const isUrl = key === 'url' && typeof value === 'string' && value.startsWith('http');
                                     const display = typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value);
                                     return (
                                       <div key={key} className="flex gap-3">
                                         <span className="text-slate-500 shrink-0">{key}:</span>
-                                        <span className="text-slate-300 break-all whitespace-pre-wrap">{display}</span>
+                                        {isUrl ? (
+                                          <a href={String(value)} target="_blank" rel="noopener noreferrer" className="text-emerald-400 hover:text-emerald-300 underline underline-offset-2 break-all transition-colors">
+                                            {display}
+                                          </a>
+                                        ) : (
+                                          <span className="text-slate-300 break-all whitespace-pre-wrap">{display}</span>
+                                        )}
                                       </div>
                                     );
                                   })}

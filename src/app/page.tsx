@@ -16,7 +16,8 @@ interface RecentScan {
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 function timeAgo(dateString: string): string {
-  const diff = Date.now() - new Date(dateString).getTime();
+  const utcDate = dateString.endsWith('Z') || dateString.includes('+') ? dateString : dateString + 'Z';
+  const diff = Date.now() - new Date(utcDate).getTime();
   const seconds = Math.floor(diff / 1000);
   if (seconds < 60) return `${seconds}s ago`;
   const minutes = Math.floor(seconds / 60);
@@ -337,7 +338,7 @@ export default function Home() {
                 </span>
 
                 <div className="flex items-center gap-4 shrink-0">
-                  {scan.status === 'COMPLETED' && scan.summary ? (
+                  {scan.status === 'SUCCEEDED' && scan.summary ? (
                     <span className={`text-sm font-semibold tabular-nums ${scoreColor(scan.summary.overallScore)}`}>
                       {scan.summary.overallScore}
                     </span>

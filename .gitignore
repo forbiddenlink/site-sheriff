@@ -58,3 +58,4 @@ Thumbs.db
 .history/
 .codacy/
 .github/instructions/codacy.instructions.md
+.playwright-mcp/

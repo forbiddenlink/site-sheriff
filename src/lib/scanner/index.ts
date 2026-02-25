@@ -2,13 +2,32 @@ import { supabaseAdmin } from '../supabase-server';
 import { Crawler, type CrawlResult } from './crawler';
 import { checkLinks, findBrokenLinks, findRedirectChains } from './link-checker';
 import { checkAccessibility, mapImpactToSeverity } from './a11y-checker';
-import { checkSEO, checkDuplicates } from './seo-checker';
+import { checkSEO, checkDuplicates, checkStructuredData } from './seo-checker';
 import { checkPerformance } from './perf-checker';
 import { checkSecurity, checkSecurityTxt } from './security-checker';
+import { checkCompression } from './compression-checker';
 import { checkRobotsSitemap } from './robots-checker';
 import { detectTechnologies } from './tech-detector';
 import { generateEmailDraft } from './email-draft';
 import type { ScanSettings, ScanProgress, ScanSummary, LinkData } from '../types';
+
+export { Crawler } from './crawler';
+export { checkLinks } from './link-checker';
+export { checkAccessibility } from './a11y-checker';
+export { checkSEO, checkStructuredData } from './seo-checker';
+export { checkCompression } from './compression-checker';
+
+/**
+ * Map axe impact level to a numeric impact score (1-5).
+ */
+function impactToScore(impact: string | null | undefined): number {
+  switch (impact) {
+    case 'critical': return 5;
+    case 'serious':  return 4;
+    case 'moderate': return 3;
+    default:         return 2;
+  }
+}
 
 export interface ScanContext {
   scanRunId: string;
@@ -55,27 +74,29 @@ export async function runScan(ctx: ScanContext): Promise<void> {
 
     const crawlResults = await crawler.crawl(normalizedUrl);
 
-    // Save page results
-    for (const result of crawlResults) {
+    // Save page results (batch insert)
+    const pageRows = crawlResults.map((result) => ({
+      id: crypto.randomUUID(),
+      scanRunId,
+      url: result.url,
+      statusCode: result.statusCode,
+      loadTimeMs: result.loadTimeMs,
+      title: result.title,
+      metaDescription: result.metaDescription,
+      h1: result.h1,
+      canonical: result.canonical,
+      robotsMeta: result.robotsMeta,
+      wordCount: result.wordCount,
+      links: result.links,
+      screenshotPath: result.screenshotBase64
+        ? `data:image/jpeg;base64,${result.screenshotBase64}`
+        : null,
+    }));
+
+    if (pageRows.length > 0) {
       const { error: pageError } = await supabaseAdmin
         .from('PageResult')
-        .insert({
-          id: crypto.randomUUID(),
-          scanRunId,
-          url: result.url,
-          statusCode: result.statusCode,
-          loadTimeMs: result.loadTimeMs,
-          title: result.title,
-          metaDescription: result.metaDescription,
-          h1: result.h1,
-          canonical: result.canonical,
-          robotsMeta: result.robotsMeta,
-          wordCount: result.wordCount,
-          links: result.links,
-          screenshotPath: result.screenshotBase64
-            ? `data:image/jpeg;base64,${result.screenshotBase64}`
-            : null,
-        });
+        .insert(pageRows);
       if (pageError) throw pageError;
     }
 
@@ -105,6 +126,9 @@ export async function runScan(ctx: ScanContext): Promise<void> {
       if (!result.error) {
         const seoIssues = checkSEO(result);
         allIssues.push(...seoIssues);
+
+        const structuredDataIssues = checkStructuredData(result);
+        allIssues.push(...structuredDataIssues);
       }
     }
 
@@ -151,13 +175,27 @@ export async function runScan(ctx: ScanContext): Promise<void> {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+    // Phase 2e: Compression check
+    // ─────────────────────────────────────────────────────────────────────────
+    try {
+      const compressionIssues = await checkCompression(normalizedUrl);
+      allIssues.push(...compressionIssues);
+    } catch {
+      console.warn('Compression check failed');
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
     // Phase 3: Check broken links
     // ─────────────────────────────────────────────────────────────────────────
     const allLinks: LinkData[] = crawlResults.flatMap((r) => r.links);
     const internalLinks = allLinks.filter((l) => l.isInternal);
+    const externalLinks = allLinks.filter((l) => !l.isInternal);
 
-    // Only check a reasonable number of links
-    const linksToCheck = internalLinks.slice(0, 100);
+    // Check internal links + a sample of external links
+    const linksToCheck = [
+      ...internalLinks.slice(0, 100),
+      ...externalLinks.slice(0, 20),
+    ];
     const linkResults = await checkLinks(linksToCheck);
     const brokenLinks = findBrokenLinks(linkResults);
 
@@ -208,7 +246,9 @@ export async function runScan(ctx: ScanContext): Promise<void> {
     // Phase 4: Accessibility checks (on first 5 pages to save time)
     //   Requires Playwright + @axe-core/playwright — skip in fetch mode
     // ─────────────────────────────────────────────────────────────────────────
-    if (!crawler.isFetchMode) {
+    if (crawler.isFetchMode) {
+      console.info('Skipping accessibility checks (Playwright unavailable)');
+    } else {
       const pagesToCheckA11y = crawlResults.slice(0, 5).filter((r) => !r.error);
 
       for (const page of pagesToCheckA11y) {
@@ -235,16 +275,14 @@ export async function runScan(ctx: ScanContext): Promise<void> {
                 url: page.url,
                 nodes: violation.nodes.slice(0, 3), // Limit to 3 examples
               },
-              impact: violation.impact === 'critical' ? 5 : violation.impact === 'serious' ? 4 : 3,
+              impact: impactToScore(violation.impact),
               effort: 2,
             });
           }
-        } catch (a11yError) {
-          console.warn(`Accessibility check failed for ${page.url}:`, a11yError);
+        } catch (error_) {
+          console.warn(`Accessibility check failed for ${page.url}:`, error_);
         }
       }
-    } else {
-      console.info('Skipping accessibility checks (Playwright unavailable)');
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -266,8 +304,8 @@ export async function runScan(ctx: ScanContext): Promise<void> {
         let perfResult;
         try {
           perfResult = await checkPerformance(pageResult.url);
-        } catch (perfErr) {
-          console.warn(`Performance check failed for ${pageResult.url}:`, perfErr);
+        } catch (error_) {
+          console.warn(`Performance check failed for ${pageResult.url}:`, error_);
           continue;
         }
 
@@ -393,23 +431,25 @@ export async function runScan(ctx: ScanContext): Promise<void> {
     // Dedupe issues by code + url
     const uniqueIssues = dedupeIssues(allIssues);
 
-    // Save issues to database
-    for (const issue of uniqueIssues) {
+    // Save issues to database (batch insert)
+    const issueRows = uniqueIssues.map((issue) => ({
+      id: crypto.randomUUID(),
+      scanRunId,
+      code: issue.code,
+      severity: issue.severity,
+      category: issue.category,
+      title: issue.title,
+      whyItMatters: issue.whyItMatters,
+      howToFix: issue.howToFix,
+      evidence: issue.evidence,
+      impact: issue.impact,
+      effort: issue.effort,
+    }));
+
+    if (issueRows.length > 0) {
       const { error: issueError } = await supabaseAdmin
         .from('Issue')
-        .insert({
-          id: crypto.randomUUID(),
-          scanRunId,
-          code: issue.code,
-          severity: issue.severity,
-          category: issue.category,
-          title: issue.title,
-          whyItMatters: issue.whyItMatters,
-          howToFix: issue.howToFix,
-          evidence: issue.evidence,
-          impact: issue.impact,
-          effort: issue.effort,
-        });
+        .insert(issueRows);
       if (issueError) throw issueError;
     }
 
@@ -475,20 +515,29 @@ function dedupeIssues<T extends { code: string; evidence: { url?: string } }>(is
 }
 
 // Severity-weighted penalty points per unique issue type
-const SEVERITY_PENALTY: Record<string, number> = { P0: 15, P1: 8, P2: 4, P3: 2 };
+const SEVERITY_PENALTY: Record<string, number> = { P0: 20, P1: 8, P2: 3, P3: 1 };
 
 /**
  * Compute the score for a single category.
+ *
  * Penalties are applied per UNIQUE issue code (not per page instance) so that
  * the same template-level problem found on many pages doesn't crush the score.
- * Additional occurrences of the same issue add a small incremental penalty
- * (+2 each, capped at +8) to still reflect how widespread the problem is.
+ * Additional page occurrences add a small logarithmic penalty (capped at +3).
+ *
+ * An exponential diminishing-returns curve is then applied to the raw total so
+ * that many low-severity issues cannot sink the score the way a few critical
+ * ones can. This produces realistic ranges:
+ *   • rawPenalty ≈ 10  →  score ~88   (minor issues)
+ *   • rawPenalty ≈ 30  →  score ~69   (moderate)
+ *   • rawPenalty ≈ 60  →  score ~53   (significant)
+ *   • rawPenalty ≈ 100 →  score ~71→29 (severe)
  */
 function computeCategoryScore(
   issues: Array<{ severity: string; category: string; code: string }>,
   category: string,
 ): number {
   const catIssues = issues.filter((i) => i.category === category);
+  if (catIssues.length === 0) return 100;
 
   // Group by issue code to avoid penalising the same problem on every page
   const grouped = new Map<string, { severity: string; count: number }>();
@@ -501,14 +550,19 @@ function computeCategoryScore(
     }
   }
 
-  let penalty = 0;
+  let rawPenalty = 0;
   for (const { severity, count } of grouped.values()) {
-    const base = SEVERITY_PENALTY[severity] ?? 4;
-    // First occurrence = base penalty, each extra instance = +2, capped at +8
-    penalty += base + Math.min((count - 1) * 2, 8);
+    const base = SEVERITY_PENALTY[severity] ?? 3;
+    // Additional instances add logarithmic penalty, capped at +3
+    const extra = count > 1 ? Math.min(Math.ceil(Math.log2(count)), 3) : 0;
+    rawPenalty += base + extra;
   }
 
-  return Math.max(0, 100 - penalty);
+  // Exponential diminishing returns so many small issues can't crater the score
+  // Maps rawPenalty → effective penalty on a 0-100 curve
+  const effectivePenalty = Math.round(100 * (1 - Math.exp(-rawPenalty / 80)));
+
+  return Math.max(0, 100 - effectivePenalty);
 }
 
 function computeSummary(
@@ -583,5 +637,3 @@ function computeSummary(
     technologies,
   };
 }
-
-export { Crawler, checkLinks, checkAccessibility, checkSEO };

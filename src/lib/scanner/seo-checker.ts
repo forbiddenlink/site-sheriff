@@ -10,8 +10,11 @@ export interface SEOIssue {
   evidence: {
     url: string;
     expected?: string;
-    actual?: string;
+    actual?: string | null;
     snippet?: string;
+    src?: string;
+    width?: number;
+    height?: number;
   };
   impact: number;
   effort: number;
@@ -129,6 +132,38 @@ export function checkSEO(result: CrawlResult): SEOIssue[] {
       impact: 3,
       effort: 1,
     });
+  } else if (result.canonical && !result.canonical.startsWith('http')) {
+    issues.push({
+      code: 'relative_canonical',
+      severity: 'P2',
+      category: 'SEO',
+      title: 'Canonical URL is relative',
+      whyItMatters: 'Relative canonical URLs can be misinterpreted by search engines, potentially causing indexing issues.',
+      howToFix: 'Use an absolute URL for the canonical tag. Change to the full URL including protocol and domain.',
+      evidence: { url: result.url, actual: result.canonical },
+      impact: 3,
+      effort: 1,
+    });
+  } else {
+    try {
+      const canonicalDomain = new URL(result.canonical).hostname;
+      const pageDomain = new URL(result.url).hostname;
+      if (canonicalDomain !== pageDomain) {
+        issues.push({
+          code: 'cross_domain_canonical',
+          severity: 'P1',
+          category: 'SEO',
+          title: 'Canonical URL points to a different domain',
+          whyItMatters: 'A canonical tag pointing to a different domain tells search engines to index that domain\'s version instead. This is usually a misconfiguration.',
+          howToFix: 'Update the canonical tag to point to the correct domain, or remove it if cross-domain canonicalization is not intended.',
+          evidence: { url: result.url, actual: result.canonical, expected: pageDomain },
+          impact: 5,
+          effort: 1,
+        });
+      }
+    } catch {
+      // Invalid URL format — skip cross-domain check
+    }
   }
 
   // Noindex detection
@@ -201,6 +236,18 @@ export function checkSEO(result: CrawlResult): SEOIssue[] {
       evidence: { url: result.url },
       impact: 3,
       effort: 2,
+    });
+  } else if (result.ogTags['og:image'] && !result.ogTags['og:image'].startsWith('http')) {
+    issues.push({
+      code: 'og_image_relative',
+      severity: 'P2',
+      category: 'SEO',
+      title: 'Open Graph image URL is relative',
+      whyItMatters: 'Relative og:image URLs may not be resolved correctly by social media platforms, resulting in missing or broken preview images.',
+      howToFix: 'Use an absolute URL for og:image including protocol and domain.',
+      evidence: { url: result.url, actual: result.ogTags['og:image'] },
+      impact: 3,
+      effort: 1,
     });
   }
 
@@ -309,6 +356,25 @@ export function checkSEO(result: CrawlResult): SEOIssue[] {
     });
   }
 
+  // Oversized image check
+  for (const image of result.images) {
+    const width = image.width ? Number.parseInt(image.width, 10) : Number.NaN;
+    const height = image.height ? Number.parseInt(image.height, 10) : Number.NaN;
+    if (!Number.isNaN(width) && !Number.isNaN(height) && (width > 2000 || height > 2000)) {
+      issues.push({
+        code: 'oversized_image',
+        severity: 'P3',
+        category: 'CONTENT',
+        title: 'Potentially oversized image',
+        whyItMatters: 'Large images slow down page load times and consume bandwidth. Images should be appropriately sized for their display context.',
+        howToFix: 'Resize images to the maximum display size needed. Use responsive images with srcset for different screen sizes.',
+        evidence: { url: result.url, src: image.src, width, height },
+        impact: 2,
+        effort: 2,
+      });
+    }
+  }
+
   // Images missing dimensions
   const imagesWithoutDimensions = result.images.filter(img => !img.width || !img.height);
   if (imagesWithoutDimensions.length > 3) {
@@ -326,6 +392,79 @@ export function checkSEO(result: CrawlResult): SEOIssue[] {
       impact: 2,
       effort: 2,
     });
+  }
+
+  // ── Favicon check ──────────────────────────────────────────────────────
+  if (result.html) {
+    const htmlLower = result.html.toLowerCase();
+    const hasFavicon =
+      htmlLower.includes('rel="icon"') ||
+      htmlLower.includes("rel='icon'") ||
+      htmlLower.includes('rel="shortcut icon"') ||
+      htmlLower.includes("rel='shortcut icon'") ||
+      htmlLower.includes('rel="apple-touch-icon"') ||
+      htmlLower.includes("rel='apple-touch-icon'");
+
+    if (!hasFavicon) {
+      issues.push({
+        code: 'missing_favicon',
+        severity: 'P2',
+        category: 'SEO',
+        title: 'Missing favicon',
+        whyItMatters: 'Favicons help users identify your site in browser tabs, bookmarks, and search results. Missing favicons look unprofessional and can hurt brand recognition.',
+        howToFix: 'Add a <link rel="icon" href="/favicon.ico"> tag to your HTML <head>. Consider adding apple-touch-icon for iOS devices.',
+        evidence: { url: result.url },
+        impact: 2,
+        effort: 1,
+      });
+    }
+  }
+
+  return issues;
+}
+
+/**
+ * Check for structured data (JSON-LD) in the page HTML
+ */
+export function checkStructuredData(result: CrawlResult): SEOIssue[] {
+  const issues: SEOIssue[] = [];
+  if (!result.html) return issues;
+
+  // Find all JSON-LD script blocks
+  const jsonLdPattern = /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+  const matches = [...result.html.matchAll(jsonLdPattern)];
+
+  if (matches.length === 0) {
+    issues.push({
+      code: 'missing_structured_data',
+      severity: 'P2',
+      category: 'SEO',
+      title: 'No structured data (JSON-LD) found',
+      whyItMatters: 'Structured data helps search engines understand your content and can enable rich results (stars, FAQs, breadcrumbs) in search listings.',
+      howToFix: 'Add JSON-LD structured data to describe your page content. Start with Organization, WebSite, or Article schema as appropriate.',
+      evidence: { url: result.url },
+      impact: 3,
+      effort: 2,
+    });
+  } else {
+    for (const match of matches) {
+      const content = match[1];
+      try {
+        JSON.parse(content);
+      } catch {
+        issues.push({
+          code: 'invalid_structured_data',
+          severity: 'P1',
+          category: 'SEO',
+          title: 'Invalid JSON-LD structured data',
+          whyItMatters: 'Malformed JSON-LD will be ignored by search engines, meaning you lose the benefits of structured data entirely.',
+          howToFix: 'Validate your JSON-LD using Google\'s Rich Results Test or Schema.org validator and fix any syntax errors.',
+          evidence: { url: result.url, snippet: content.slice(0, 200) },
+          impact: 4,
+          effort: 1,
+        });
+      }
+    }
   }
 
   return issues;
