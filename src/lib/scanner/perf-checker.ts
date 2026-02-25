@@ -5,6 +5,7 @@ export interface PerfResult {
   metrics: {
     firstContentfulPaint: number | null;
     largestContentfulPaint: number | null;
+    interactionToNextPaint: number | null;
     timeToInteractive: number | null;
     totalBlockingTime: number | null;
     cumulativeLayoutShift: number | null;
@@ -89,9 +90,41 @@ export async function checkPerformance(url: string, options?: PerfCheckOptions):
       // LCP not available
     }
 
+    // Get INP (Interaction to Next Paint) via PerformanceObserver
+    // INP measures responsiveness - the latency of all interactions during page lifecycle
+    let inp: number | null = null;
+    try {
+      inp = await page.evaluate(() => {
+        return new Promise<number | null>((resolve) => {
+          let maxINP = 0;
+          const observer = new PerformanceObserver((list) => {
+            for (const entry of list.getEntries()) {
+              if (entry.entryType === 'event') {
+                maxINP = Math.max(maxINP, (entry as PerformanceEventTiming).duration);
+              }
+            }
+          });
+          try {
+            observer.observe({ type: 'event', buffered: true });
+          } catch {
+            resolve(null);
+            return;
+          }
+          // Sample for 5 seconds to capture interaction events
+          setTimeout(() => {
+            observer.disconnect();
+            resolve(maxINP > 0 ? Math.round(maxINP) : null);
+          }, 5000);
+        });
+      });
+    } catch {
+      // INP not available
+    }
+
     const metrics = {
       firstContentfulPaint: perfTiming.fcp,
       largestContentfulPaint: lcp,
+      interactionToNextPaint: inp,
       timeToInteractive: null, // Would need Lighthouse for true TTI
       totalBlockingTime: null, // Would need Lighthouse
       cumulativeLayoutShift: perfTiming.cls,
@@ -105,6 +138,7 @@ export async function checkPerformance(url: string, options?: PerfCheckOptions):
     // FCP: good under 1.8s, needs work under 3s, poor above 3s
     // LCP: good under 2.5s, needs work under 4s, poor above 4s
     // CLS: good under 0.1, needs work under 0.25, poor above 0.25
+    // INP: good under 200ms, needs work under 500ms, poor above 500ms
     let score = 100;
 
     if (metrics.firstContentfulPaint) {
@@ -122,6 +156,12 @@ export async function checkPerformance(url: string, options?: PerfCheckOptions):
       else if (metrics.cumulativeLayoutShift > 0.1) score -= 10;
     }
 
+    // INP scoring: good <200ms, needs improvement 200-500ms, poor >500ms
+    if (metrics.interactionToNextPaint !== null) {
+      if (metrics.interactionToNextPaint > 500) score -= 20;
+      else if (metrics.interactionToNextPaint > 200) score -= 10;
+    }
+
     if (loadTime > 5000) score -= 20;
     else if (loadTime > 3000) score -= 10;
 
@@ -134,6 +174,7 @@ export async function checkPerformance(url: string, options?: PerfCheckOptions):
       metrics: {
         firstContentfulPaint: null,
         largestContentfulPaint: null,
+        interactionToNextPaint: null,
         timeToInteractive: null,
         totalBlockingTime: null,
         cumulativeLayoutShift: null,

@@ -374,6 +374,195 @@ export function checkSEO(result: CrawlResult): SEOIssue[] {
     }
   }
 
+  // ── URL structure checks ─────────────────────────────────────────────
+  try {
+    const urlPath = new URL(result.url).pathname + new URL(result.url).search;
+
+    // Check for uppercase characters in URL
+    if (/[A-Z]/.test(urlPath)) {
+      issues.push({
+        code: 'url_uppercase',
+        severity: 'P3',
+        category: 'SEO',
+        title: 'URL contains uppercase characters',
+        whyItMatters: 'URLs are case-sensitive on most servers. Uppercase URLs can cause duplicate content issues if the same page is accessible via different cases, and they look less clean.',
+        howToFix: 'Use lowercase URLs consistently. Set up 301 redirects from uppercase variants to lowercase versions.',
+        evidence: { url: result.url, actual: urlPath },
+        impact: 1,
+        effort: 2,
+      });
+    }
+
+    // Check for URL length (path + query string)
+    if (urlPath.length > 115) {
+      issues.push({
+        code: 'url_too_long',
+        severity: 'P3',
+        category: 'SEO',
+        title: 'URL is too long',
+        whyItMatters: 'Long URLs are harder to share, may get truncated in some contexts, and can indicate poor URL structure. Search engines may also give less weight to keywords far into the URL.',
+        howToFix: 'Shorten the URL by removing unnecessary words, using shorter slugs, or restructuring your URL hierarchy.',
+        evidence: { url: result.url, actual: `${urlPath.length} characters`, expected: 'Under 115 characters' },
+        impact: 1,
+        effort: 2,
+      });
+    }
+
+    // Check for underscores instead of hyphens
+    if (urlPath.includes('_')) {
+      issues.push({
+        code: 'url_underscores',
+        severity: 'P3',
+        category: 'SEO',
+        title: 'URL uses underscores instead of hyphens',
+        whyItMatters: 'Google treats hyphens as word separators but not underscores. Using underscores means search engines see "my_page" as one word rather than "my page".',
+        howToFix: 'Replace underscores with hyphens in URLs. Set up 301 redirects from old underscore URLs to new hyphenated versions.',
+        evidence: { url: result.url, actual: urlPath },
+        impact: 1,
+        effort: 2,
+      });
+    }
+  } catch {
+    // Invalid URL - skip URL structure checks
+  }
+
+  // ── Pagination rel=prev/next check ──────────────────────────────────────
+  if (result.html) {
+    const prevMatch = result.html.match(/<link[^>]*\brel\s*=\s*["']prev["'][^>]*>/i);
+    const nextMatch = result.html.match(/<link[^>]*\brel\s*=\s*["']next["'][^>]*>/i);
+
+    // Extract href from prev/next links
+    const prevHrefMatch = prevMatch ? prevMatch[0].match(/\bhref\s*=\s*["']([^"']+)["']/i) : null;
+    const nextHrefMatch = nextMatch ? nextMatch[0].match(/\bhref\s*=\s*["']([^"']+)["']/i) : null;
+
+    const prevHref = prevHrefMatch?.[1];
+    const nextHref = nextHrefMatch?.[1];
+
+    // Detect pagination pattern in URL (e.g., ?page=2, /page/2, /p/2, etc.)
+    const paginationPatterns = [
+      /[?&]page=\d+/i,
+      /\/page\/\d+/i,
+      /\/p\/\d+/i,
+      /[?&]p=\d+/i,
+      /[?&]offset=\d+/i,
+      /\/\d+\/?$/,
+    ];
+    const urlLooksPaginated = paginationPatterns.some(p => p.test(result.url));
+
+    // If page looks paginated but has no prev/next links
+    if (urlLooksPaginated && !prevMatch && !nextMatch) {
+      issues.push({
+        code: 'pagination_missing_rel_links',
+        severity: 'P2',
+        category: 'SEO',
+        title: 'Paginated page missing rel=prev/next links',
+        whyItMatters: 'Search engines use rel=prev and rel=next to understand pagination sequences. Without them, search engines may not discover all paginated content or may treat each page as standalone.',
+        howToFix: 'Add <link rel="prev" href="..."> and <link rel="next" href="..."> tags to paginated pages pointing to adjacent pages in the sequence.',
+        evidence: { url: result.url, snippet: 'URL appears paginated but no rel=prev/next found' },
+        impact: 3,
+        effort: 1,
+      });
+    }
+
+    // Validate prev/next href values if present
+    if (prevHref && !prevHref.startsWith('http') && !prevHref.startsWith('/')) {
+      issues.push({
+        code: 'pagination_prev_relative',
+        severity: 'P3',
+        category: 'SEO',
+        title: 'rel=prev uses non-standard URL format',
+        whyItMatters: 'Relative URLs in rel=prev may not be resolved correctly by all search engines.',
+        howToFix: 'Use absolute URLs for rel=prev (starting with https:// or /).',
+        evidence: { url: result.url, actual: prevHref },
+        impact: 2,
+        effort: 1,
+      });
+    }
+
+    if (nextHref && !nextHref.startsWith('http') && !nextHref.startsWith('/')) {
+      issues.push({
+        code: 'pagination_next_relative',
+        severity: 'P3',
+        category: 'SEO',
+        title: 'rel=next uses non-standard URL format',
+        whyItMatters: 'Relative URLs in rel=next may not be resolved correctly by all search engines.',
+        howToFix: 'Use absolute URLs for rel=next (starting with https:// or /).',
+        evidence: { url: result.url, actual: nextHref },
+        impact: 2,
+        effort: 1,
+      });
+    }
+  }
+
+  return issues;
+}
+
+/**
+ * Common non-descriptive anchor text patterns to flag
+ */
+const NON_DESCRIPTIVE_ANCHOR_PATTERNS = [
+  /^click\s*here$/i,
+  /^here$/i,
+  /^read\s*more$/i,
+  /^learn\s*more$/i,
+  /^more$/i,
+  /^link$/i,
+  /^this$/i,
+  /^this\s*link$/i,
+  /^go$/i,
+  /^see\s*more$/i,
+  /^continue$/i,
+  /^continue\s*reading$/i,
+  /^details$/i,
+  /^info$/i,
+  /^view$/i,
+  /^view\s*more$/i,
+];
+
+/**
+ * Check anchor text quality for all links on a page
+ */
+export function checkAnchorText(result: CrawlResult): SEOIssue[] {
+  const issues: SEOIssue[] = [];
+
+  for (const link of result.links) {
+    const anchorText = link.text.trim();
+
+    // Check for empty anchor text (P2 - more important)
+    if (!anchorText) {
+      issues.push({
+        code: 'empty_anchor_text',
+        severity: 'P2',
+        category: 'SEO',
+        title: 'Link has empty anchor text',
+        whyItMatters: 'Empty anchor text provides no context to users or search engines about where the link leads. Screen readers will only announce "link" without describing the destination.',
+        howToFix: 'Add descriptive text to the link that explains where it leads. For image links, ensure the image has alt text.',
+        evidence: { url: result.url, snippet: `Link to: ${link.href}` },
+        impact: 3,
+        effort: 1,
+      });
+      continue;
+    }
+
+    // Check for non-descriptive anchor text (P3 - minor issue)
+    for (const pattern of NON_DESCRIPTIVE_ANCHOR_PATTERNS) {
+      if (pattern.test(anchorText)) {
+        issues.push({
+          code: 'non_descriptive_anchor',
+          severity: 'P3',
+          category: 'SEO',
+          title: 'Link uses non-descriptive anchor text',
+          whyItMatters: 'Generic anchor text like "click here" or "read more" provides no SEO value and poor accessibility. Search engines use anchor text to understand linked content.',
+          howToFix: 'Replace generic text with descriptive anchor text that indicates the link destination. For example, change "click here" to "view our pricing plans".',
+          evidence: { url: result.url, actual: anchorText, snippet: `Link to: ${link.href}` },
+          impact: 2,
+          effort: 1,
+        });
+        break; // Only report once per link
+      }
+    }
+  }
+
   return issues;
 }
 

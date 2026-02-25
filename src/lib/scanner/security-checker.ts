@@ -162,6 +162,83 @@ export function checkSecurity(result: CrawlResult): SecurityIssue[] {
     }
   }
 
+  // Analyze CSP policy contents if present
+  const csp = result.responseHeaders['content-security-policy'];
+  if (csp) {
+    // Check for unsafe-inline in script-src or style-src
+    if (csp.includes("'unsafe-inline'")) {
+      issues.push({
+        code: 'csp_unsafe_inline',
+        severity: 'P1',
+        category: 'SECURITY',
+        title: 'CSP allows unsafe-inline scripts or styles',
+        whyItMatters:
+          "unsafe-inline defeats the purpose of CSP by allowing inline scripts that could be injected by attackers via XSS vulnerabilities.",
+        howToFix:
+          "Remove 'unsafe-inline' and use nonces or hashes for legitimate inline scripts. For styles, consider extracting inline styles to external stylesheets.",
+        evidence: { url: result.url, actual: csp.slice(0, 200) },
+        impact: 4,
+        effort: 3,
+      });
+    }
+
+    // Check for unsafe-eval in script-src
+    if (csp.includes("'unsafe-eval'")) {
+      issues.push({
+        code: 'csp_unsafe_eval',
+        severity: 'P1',
+        category: 'SECURITY',
+        title: 'CSP allows unsafe-eval',
+        whyItMatters:
+          "unsafe-eval allows the use of eval() and similar functions, which can execute arbitrary code injected by attackers.",
+        howToFix:
+          "Remove 'unsafe-eval' from your CSP. Refactor code that uses eval(), new Function(), or setTimeout/setInterval with strings.",
+        evidence: { url: result.url, actual: csp.slice(0, 200) },
+        impact: 4,
+        effort: 3,
+      });
+    }
+
+    // Check for overly permissive wildcards in default-src or script-src
+    // Match patterns like "default-src *" or "script-src *" but not "*.example.com"
+    const hasWildcardDefaultSrc = /default-src[^;]*(?:^|[\s])(\*|https?:\*?)(?:[\s;]|$)/.test(csp);
+    const hasWildcardScriptSrc = /script-src[^;]*(?:^|[\s])(\*|https?:\*?)(?:[\s;]|$)/.test(csp);
+    if (hasWildcardDefaultSrc || hasWildcardScriptSrc) {
+      issues.push({
+        code: 'csp_wildcard_source',
+        severity: 'P2',
+        category: 'SECURITY',
+        title: 'CSP uses overly permissive wildcard sources',
+        whyItMatters:
+          "Using '*' in default-src or script-src allows loading resources from any origin, effectively bypassing CSP protection.",
+        howToFix:
+          "Replace wildcard sources with specific trusted domains. Use 'self' for same-origin resources and explicitly list third-party domains.",
+        evidence: { url: result.url, actual: csp.slice(0, 200) },
+        impact: 3,
+        effort: 2,
+      });
+    }
+
+    // Check for data: URIs in script-src
+    // Look for data: specifically in script-src directive
+    const scriptSrcMatch = csp.match(/script-src[^;]*/);
+    if (scriptSrcMatch && scriptSrcMatch[0].includes('data:')) {
+      issues.push({
+        code: 'csp_data_uri_scripts',
+        severity: 'P2',
+        category: 'SECURITY',
+        title: 'CSP allows data: URIs in script-src',
+        whyItMatters:
+          "Allowing data: URIs in script-src enables attackers to inject executable scripts encoded as data URIs, bypassing CSP.",
+        howToFix:
+          "Remove 'data:' from script-src. If you need to load scripts dynamically, use nonces or hashes instead.",
+        evidence: { url: result.url, actual: csp.slice(0, 200) },
+        impact: 3,
+        effort: 2,
+      });
+    }
+  }
+
   // Check cookie security (limit to first 20 cookies to avoid report bloat)
   const cookiesWithoutSecure: string[] = [];
   const cookiesWithoutHttpOnly: string[] = [];
@@ -289,6 +366,50 @@ export function checkSecurity(result: CrawlResult): SecurityIssue[] {
     });
   }
 
+  // Check for external scripts without Subresource Integrity (SRI)
+  const scriptsWithoutSRI: string[] = [];
+  let pageHostname: string;
+  try {
+    pageHostname = new URL(result.url).hostname;
+  } catch {
+    pageHostname = '';
+  }
+
+  $('script[src]').each((_, el) => {
+    const src = $(el).attr('src');
+    const integrity = $(el).attr('integrity');
+    if (src && src.startsWith('http')) {
+      try {
+        const scriptHostname = new URL(src).hostname;
+        // Only flag if it's a different hostname (CDN/external) and no integrity
+        if (scriptHostname !== pageHostname && !integrity) {
+          scriptsWithoutSRI.push(src);
+        }
+      } catch {
+        // Invalid URL — skip
+      }
+    }
+  });
+
+  if (scriptsWithoutSRI.length > 0) {
+    issues.push({
+      code: 'external_script_missing_sri',
+      severity: 'P3',
+      category: 'SECURITY',
+      title: `${scriptsWithoutSRI.length} external script(s) missing Subresource Integrity`,
+      whyItMatters:
+        'External scripts loaded from CDNs without integrity attributes can be tampered with if the CDN is compromised, potentially injecting malicious code into your site.',
+      howToFix:
+        'Add integrity="sha384-..." and crossorigin="anonymous" attributes to external scripts. Generate hashes using tools like srihash.org.',
+      evidence: {
+        url: result.url,
+        snippet: scriptsWithoutSRI.slice(0, 5).join(', '),
+      },
+      impact: 3,
+      effort: 2,
+    });
+  }
+
   return issues;
 }
 
@@ -394,6 +515,118 @@ export async function checkHttpsRedirect(baseUrl: string): Promise<SecurityIssue
     }
   } catch {
     // Fetch failed entirely (HTTP port may not be open) — skip silently
+  }
+
+  return issues;
+}
+
+/**
+ * Check if the SSL/TLS certificate is expiring soon.
+ * Uses Node.js TLS to inspect the certificate directly.
+ */
+export async function checkCertificateExpiry(baseUrl: string): Promise<SecurityIssue[]> {
+  const issues: SecurityIssue[] = [];
+
+  if (!baseUrl.startsWith('https://')) return issues;
+
+  try {
+    const { hostname, port } = new URL(baseUrl);
+    const tls = await import('tls');
+
+    const certInfo = await new Promise<{ validTo: Date; daysRemaining: number } | null>((resolve) => {
+      const socket = tls.connect(
+        {
+          host: hostname,
+          port: port ? parseInt(port, 10) : 443,
+          servername: hostname,
+          rejectUnauthorized: false, // We want to check expiry even for self-signed
+        },
+        () => {
+          const cert = socket.getPeerCertificate();
+          socket.destroy();
+
+          if (cert && cert.valid_to) {
+            const validTo = new Date(cert.valid_to);
+            const now = new Date();
+            const daysRemaining = Math.floor((validTo.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+            resolve({ validTo, daysRemaining });
+          } else {
+            resolve(null);
+          }
+        }
+      );
+
+      socket.on('error', () => {
+        socket.destroy();
+        resolve(null);
+      });
+
+      // Timeout after 5 seconds
+      socket.setTimeout(5000, () => {
+        socket.destroy();
+        resolve(null);
+      });
+    });
+
+    if (certInfo) {
+      if (certInfo.daysRemaining < 0) {
+        issues.push({
+          code: 'certificate_expired',
+          severity: 'P0',
+          category: 'SECURITY',
+          title: 'SSL certificate has expired',
+          whyItMatters:
+            'An expired SSL certificate will cause browsers to show security warnings, blocking users from accessing your site and destroying trust.',
+          howToFix:
+            'Renew your SSL certificate immediately. If using Let\'s Encrypt, run certbot renew. If using a paid certificate, contact your certificate authority.',
+          evidence: {
+            url: baseUrl,
+            expected: 'Valid certificate',
+            actual: `Expired ${Math.abs(certInfo.daysRemaining)} day(s) ago on ${certInfo.validTo.toISOString().split('T')[0]}`,
+          },
+          impact: 5,
+          effort: 1,
+        });
+      } else if (certInfo.daysRemaining <= 7) {
+        issues.push({
+          code: 'certificate_expiring_critical',
+          severity: 'P0',
+          category: 'SECURITY',
+          title: `SSL certificate expires in ${certInfo.daysRemaining} day(s)`,
+          whyItMatters:
+            'Your SSL certificate is about to expire. Once expired, browsers will show security warnings and users may not be able to access your site.',
+          howToFix:
+            'Renew your SSL certificate immediately. If using Let\'s Encrypt, set up automatic renewal with certbot. Check your hosting provider\'s SSL settings.',
+          evidence: {
+            url: baseUrl,
+            expected: 'Certificate valid for >30 days',
+            actual: `Expires on ${certInfo.validTo.toISOString().split('T')[0]} (${certInfo.daysRemaining} days remaining)`,
+          },
+          impact: 5,
+          effort: 1,
+        });
+      } else if (certInfo.daysRemaining <= 30) {
+        issues.push({
+          code: 'certificate_expiring_soon',
+          severity: 'P2',
+          category: 'SECURITY',
+          title: `SSL certificate expires in ${certInfo.daysRemaining} days`,
+          whyItMatters:
+            'Your SSL certificate will expire soon. Plan to renew it before expiration to avoid security warnings and service disruption.',
+          howToFix:
+            'Renew your SSL certificate. Consider setting up automatic renewal if not already configured. Most hosting providers and Let\'s Encrypt support auto-renewal.',
+          evidence: {
+            url: baseUrl,
+            expected: 'Certificate valid for >30 days',
+            actual: `Expires on ${certInfo.validTo.toISOString().split('T')[0]} (${certInfo.daysRemaining} days remaining)`,
+          },
+          impact: 4,
+          effort: 1,
+        });
+      }
+    }
+  } catch {
+    // TLS connection failed — skip silently (could be network issue, not a security problem we can report)
   }
 
   return issues;

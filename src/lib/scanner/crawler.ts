@@ -4,6 +4,68 @@ import type { LinkData } from '../types';
 
 type Browser = import('playwright').Browser;
 
+/**
+ * Common tracking/marketing URL parameters to strip before crawling.
+ * This prevents duplicate crawls of the same page with different tracking params.
+ */
+const TRACKING_PARAMS_TO_STRIP = [
+  // UTM parameters
+  'utm_source',
+  'utm_medium',
+  'utm_campaign',
+  'utm_term',
+  'utm_content',
+  'utm_id',
+  // Facebook
+  'fbclid',
+  'fb_action_ids',
+  'fb_action_types',
+  'fb_source',
+  // Google
+  'gclid',
+  'gclsrc',
+  'dclid',
+  // Microsoft/Bing
+  'msclkid',
+  // Mailchimp
+  'mc_cid',
+  'mc_eid',
+  // HubSpot
+  '_hsenc',
+  '_hsmi',
+  '__hstc',
+  '__hsfp',
+  '__hssc',
+  // Other common tracking
+  'ref',
+  'referer',
+  'referrer',
+  '_ga',
+  '_gl',
+  'trk',
+  'trkInfo',
+  'si',
+  'igshid',
+  'share_source',
+];
+
+/**
+ * Strip common tracking parameters from a URL to avoid duplicate crawls.
+ * Preserves other query parameters that may be necessary for the page.
+ */
+function stripTrackingParams(url: string): string {
+  try {
+    const parsed = new URL(url);
+    for (const param of TRACKING_PARAMS_TO_STRIP) {
+      parsed.searchParams.delete(param);
+    }
+    return parsed.toString();
+  } catch {
+    // Invalid URL, return as-is
+    return url;
+  }
+}
+
 export interface ImageData {
   src: string;
   alt: string | null;
@@ -101,8 +163,8 @@ export class Crawler {
         this.useFetchFallback = true;
       }
 
-      // Normalize start URL and extract hostname
-      const normalizedStart = normalizeUrl(startUrl);
+      // Normalize start URL, strip tracking params, and extract hostname
+      const normalizedStart = stripTrackingParams(normalizeUrl(startUrl));
       this.baseHostname = getHostname(normalizedStart);
       this.queue.push({ url: normalizedStart, depth: 0 });
 
@@ -141,16 +203,17 @@ export class Crawler {
         this.visited.add(url);
         results.push(result!);
 
-        // Add internal links to queue
+        // Add internal links to queue (strip tracking params to avoid duplicates)
         if (!result!.error) {
           for (const link of result!.links) {
+            const cleanHref = stripTrackingParams(link.href);
             if (
               link.isInternal &&
-              !this.visited.has(link.href) &&
-              !shouldExcludeUrl(link.href) &&
-              !this.queue.some((q) => q.url === link.href)
+              !this.visited.has(cleanHref) &&
+              !shouldExcludeUrl(cleanHref) &&
+              !this.queue.some((q) => q.url === cleanHref)
             ) {
-              this.queue.push({ url: link.href, depth: depth + 1 });
+              this.queue.push({ url: cleanHref, depth: depth + 1 });
             }
           }
         }

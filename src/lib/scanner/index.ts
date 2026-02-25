@@ -2,7 +2,7 @@ import { supabaseAdmin } from '../supabase-server';
 import { Crawler, type CrawlResult } from './crawler';
 import { checkLinks, findBrokenLinks, findRedirectChains } from './link-checker';
 import { checkAccessibility, mapImpactToSeverity } from './a11y-checker';
-import { checkSEO, checkDuplicates, checkStructuredData, checkSPARendering, validateOgImages, validateCanonicals } from './seo-checker';
+import { checkSEO, checkDuplicates, checkStructuredData, checkSPARendering, validateOgImages, validateCanonicals, checkAnchorText } from './seo-checker';
 import { checkPerformance } from './perf-checker';
 import { checkSecurity, checkSecurityTxt, checkHttpsRedirect } from './security-checker';
 import { checkCompression } from './compression-checker';
@@ -18,7 +18,7 @@ import type { ScanSettings, ScanProgress, ScanSummary, LinkData } from '../types
 export { Crawler } from './crawler';
 export { checkLinks } from './link-checker';
 export { checkAccessibility } from './a11y-checker';
-export { checkSEO, checkStructuredData } from './seo-checker';
+export { checkSEO, checkStructuredData, checkAnchorText } from './seo-checker';
 export { checkCompression } from './compression-checker';
 export { checkContentQuality } from './content-checker';
 export { checkImageOptimization } from './image-checker';
@@ -166,6 +166,9 @@ export async function runScan(ctx: ScanContext): Promise<void> {
 
         const structuredDataIssues = checkStructuredData(result);
         allIssues.push(...structuredDataIssues);
+
+        const anchorTextIssues = checkAnchorText(result);
+        allIssues.push(...anchorTextIssues);
       }
     }
 
@@ -807,6 +810,34 @@ export async function runScan(ctx: ScanContext): Promise<void> {
           });
         }
 
+        // INP (Interaction to Next Paint) issues
+        // Good: <200ms, Needs Improvement: 200-500ms, Poor: >500ms
+        if (m.interactionToNextPaint !== null && m.interactionToNextPaint > 500) {
+          allIssues.push({
+            code: 'slow_inp',
+            severity: 'P1',
+            category: 'PERFORMANCE',
+            title: `Slow Interaction to Next Paint (${m.interactionToNextPaint}ms)`,
+            whyItMatters: 'INP above 500ms means the page is unresponsive to user interactions. This is a Core Web Vital that directly impacts user experience and SEO rankings.',
+            howToFix: 'Reduce JavaScript execution time, break up long tasks, optimize event handlers, and consider using web workers for heavy computations.',
+            evidence: { url: pageResult.url, inp: m.interactionToNextPaint },
+            impact: 4,
+            effort: 3,
+          });
+        } else if (m.interactionToNextPaint !== null && m.interactionToNextPaint > 200) {
+          allIssues.push({
+            code: 'moderate_inp',
+            severity: 'P2',
+            category: 'PERFORMANCE',
+            title: `Interaction to Next Paint needs improvement (${m.interactionToNextPaint}ms)`,
+            whyItMatters: 'INP between 200-500ms indicates the page could be more responsive. This is a Core Web Vital metric that affects search ranking and user satisfaction.',
+            howToFix: 'Optimize event handlers, reduce main thread blocking, use requestIdleCallback for non-critical work, and consider code splitting.',
+            evidence: { url: pageResult.url, inp: m.interactionToNextPaint },
+            impact: 3,
+            effort: 2,
+          });
+        }
+
         // Load time issue
         if (m.loadTime !== null && m.loadTime > 5000) {
           allIssues.push({
@@ -872,6 +903,21 @@ export async function runScan(ctx: ScanContext): Promise<void> {
               evidence: { url: homepagePerf.url, cls: mm.cumulativeLayoutShift, viewport: '375x812 (mobile)' },
               impact: 4,
               effort: 2,
+            });
+          }
+
+          // Mobile INP check
+          if (mm.interactionToNextPaint !== null && mm.interactionToNextPaint > 500) {
+            allIssues.push({
+              code: 'mobile_slow_inp',
+              severity: 'P1',
+              category: 'PERFORMANCE',
+              title: `[Mobile] Slow Interaction to Next Paint (${mm.interactionToNextPaint}ms)`,
+              whyItMatters: 'Mobile devices have slower processors, making responsiveness even more critical. INP above 500ms on mobile means users experience significant lag when interacting.',
+              howToFix: 'Reduce JavaScript execution time on mobile, defer non-critical scripts, optimize touch event handlers, and minimize main thread blocking.',
+              evidence: { url: homepagePerf.url, inp: mm.interactionToNextPaint, viewport: '375x812 (mobile)' },
+              impact: 4,
+              effort: 3,
             });
           }
 
