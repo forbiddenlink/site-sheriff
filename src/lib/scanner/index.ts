@@ -14,6 +14,7 @@ import { checkImageOptimization } from './image-checker';
 import { checkResourceOptimization } from './resource-checker';
 import { analyzeInternalLinking } from './linking-analyzer';
 import { checkEEAT } from './eeat-checker';
+import { checkAIReadiness } from './ai-readiness-checker';
 import type { ScanSettings, ScanProgress, ScanSummary, LinkData } from '../types';
 
 export { Crawler } from './crawler';
@@ -205,6 +206,19 @@ export async function runScan(ctx: ScanContext): Promise<void> {
         }
       }
       completedPhases.push('eeat');
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Phase 2a-ai: AI readiness checks (SearchGPT, Perplexity, Claude)
+    // ─────────────────────────────────────────────────────────────────────────
+    if (!isNearDeadline()) {
+      for (const result of htmlPages) {
+        if (!result.error) {
+          const aiIssues = checkAIReadiness(result);
+          allIssues.push(...aiIssues);
+        }
+      }
+      completedPhases.push('ai-readiness');
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -973,7 +987,7 @@ export async function runScan(ctx: ScanContext): Promise<void> {
     // Timeout partial results: add info issue if phases were skipped
     // ─────────────────────────────────────────────────────────────────────────
     const allPhaseNames = [
-      'crawl', 'seo', 'content', 'images', 'resources', 'security',
+      'crawl', 'seo', 'content', 'eeat', 'ai-readiness', 'images', 'resources', 'security',
       'robots-sitemap', 'tech-duplicates', 'internal-linking', 'compression',
       'sitemap-xref', 'ttfb', 'console-errors', 'broken-links',
       'error-page-links', 'accessibility', 'performance',
