@@ -566,6 +566,13 @@ export default function Home() {
           </a>
           <span className="text-slate-700">·</span>
           <a
+            href="/scans"
+            className="text-xs text-slate-500 hover:text-emerald-400 transition-colors font-mono"
+          >
+            Scans
+          </a>
+          <span className="text-slate-700">·</span>
+          <a
             href="/privacy"
             className="text-xs text-slate-500 hover:text-emerald-400 transition-colors font-mono"
           >
