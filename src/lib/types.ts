@@ -78,6 +78,7 @@ export interface LinkData {
   href: string;
   text: string;
   isInternal: boolean;
+  sourceUrl?: string;
   statusCode?: number;
   error?: string;
 }

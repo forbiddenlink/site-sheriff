@@ -368,6 +368,7 @@ export class Crawler {
         href: resolved,
         text: $(el).text().trim().slice(0, 100),
         isInternal,
+        sourceUrl: url,
       });
     });
 

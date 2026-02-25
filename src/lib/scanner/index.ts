@@ -243,9 +243,25 @@ export async function runScan(ctx: ScanContext): Promise<void> {
     // ─────────────────────────────────────────────────────────────────────────
     // Phase 3: Check broken links
     // ─────────────────────────────────────────────────────────────────────────
+
+    // Collect all links with source attribution
     const allLinks: LinkData[] = crawlResults.flatMap((r) => r.links);
-    const internalLinks = allLinks.filter((l) => l.isInternal);
-    const externalLinks = allLinks.filter((l) => !l.isInternal);
+
+    // Build a map: target URL → source pages that link to it
+    const linkSourceMap = new Map<string, Set<string>>();
+    for (const link of allLinks) {
+      if (!linkSourceMap.has(link.href)) {
+        linkSourceMap.set(link.href, new Set());
+      }
+      if (link.sourceUrl) {
+        linkSourceMap.get(link.href)!.add(link.sourceUrl);
+      }
+    }
+
+    // Dedupe links by href for HTTP checking
+    const uniqueByHref = Array.from(new Map(allLinks.map((l) => [l.href, l])).values());
+    const internalLinks = uniqueByHref.filter((l) => l.isInternal);
+    const externalLinks = uniqueByHref.filter((l) => !l.isInternal);
 
     // Check internal links + a sample of external links
     const linksToCheck = [
@@ -256,6 +272,7 @@ export async function runScan(ctx: ScanContext): Promise<void> {
     const brokenLinks = findBrokenLinks(linkResults);
 
     for (const broken of brokenLinks) {
+      const foundOnPages = [...(linkSourceMap.get(broken.href) ?? [])];
       allIssues.push({
         code: 'broken_link',
         severity: broken.statusCode === 404 ? 'P1' : 'P2',
@@ -270,6 +287,7 @@ export async function runScan(ctx: ScanContext): Promise<void> {
           httpStatus: broken.statusCode,
           error: broken.error,
           linkText: broken.text,
+          foundOnPages: foundOnPages.length > 0 ? foundOnPages : undefined,
         },
         impact: 4,
         effort: 1,
@@ -279,6 +297,7 @@ export async function runScan(ctx: ScanContext): Promise<void> {
     // Detect redirect chains
     const redirectChains = findRedirectChains(linkResults);
     for (const chain of redirectChains) {
+      const foundOnPages = [...(linkSourceMap.get(chain.href) ?? [])];
       allIssues.push({
         code: 'redirect_chain',
         severity: 'P2',
@@ -292,10 +311,40 @@ export async function runScan(ctx: ScanContext): Promise<void> {
           chain: chain.redirectChain,
           hops: chain.redirectChain!.length - 1,
           linkText: chain.text,
+          foundOnPages: foundOnPages.length > 0 ? foundOnPages : undefined,
         },
         impact: 3,
         effort: 1,
       });
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Phase 3b: Detect internal links to crawled error pages
+    //   Cross-reference: pages crawled with 4xx/5xx and which pages link to them
+    // ─────────────────────────────────────────────────────────────────────────
+    const crawledErrorPages = crawlResults.filter(
+      (r) => r.statusCode >= 400 || (r.statusCode === 0 && r.error)
+    );
+    for (const errorPage of crawledErrorPages) {
+      const sourcePages = [...(linkSourceMap.get(errorPage.url) ?? [])];
+      if (sourcePages.length > 0) {
+        allIssues.push({
+          code: 'internal_link_to_error_page',
+          severity: errorPage.statusCode === 404 ? 'P1' : 'P2',
+          category: 'LINKS',
+          title: `Internal link to ${errorPage.statusCode || 'error'} page`,
+          whyItMatters: 'Your site has internal links pointing to pages that return error status codes. This creates a poor user experience and wastes search engine crawl budget.',
+          howToFix: 'Update or remove the internal links on the source pages listed below, or restore the target page.',
+          evidence: {
+            url: errorPage.url,
+            httpStatus: errorPage.statusCode,
+            error: errorPage.error,
+            linkedFromPages: sourcePages,
+          },
+          impact: 4,
+          effort: 1,
+        });
+      }
     }
 
     // ─────────────────────────────────────────────────────────────────────────

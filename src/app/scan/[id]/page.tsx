@@ -1096,7 +1096,22 @@ export default function ScanPage() {
                                 <div className="bg-white/2 border border-white/6 rounded-xl p-4 font-mono text-xs text-slate-300 space-y-1.5 overflow-x-auto">
                                   {Object.entries(issue.evidence).map(([key, value]) => {
                                     if (value === null || value === undefined) return null;
-                                    const isUrl = key === 'url' && typeof value === 'string' && value.startsWith('http');
+                                    const isUrl = typeof value === 'string' && value.startsWith('http');
+                                    // Render arrays of URLs as individual clickable links
+                                    if (Array.isArray(value) && value.every((v: unknown) => typeof v === 'string' && (v as string).startsWith('http'))) {
+                                      return (
+                                        <div key={key}>
+                                          <span className="text-slate-500 shrink-0">{key}:</span>
+                                          <div className="ml-4 mt-1 space-y-1">
+                                            {(value as string[]).map((url: string, i: number) => (
+                                              <a key={i} href={url} target="_blank" rel="noopener noreferrer" className="block text-emerald-400 hover:text-emerald-300 underline underline-offset-2 break-all transition-colors">
+                                                {url}
+                                              </a>
+                                            ))}
+                                          </div>
+                                        </div>
+                                      );
+                                    }
                                     const display = typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value);
                                     return (
                                       <div key={key} className="flex gap-3">
