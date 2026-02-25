@@ -82,19 +82,19 @@ export default function PrivacyPage() {
             </a>
             <span className="text-slate-700">·</span>
             <a
+              href="/scans"
+              className="text-sm text-slate-500 hover:text-emerald-400 transition-colors"
+            >
+              Scans
+            </a>
+            <span className="text-slate-700">·</span>
+            <a
               href="https://github.com/forbiddenlink/site-sheriff/issues"
               target="_blank"
               rel="noopener noreferrer"
               className="text-sm text-slate-500 hover:text-emerald-400 transition-colors"
             >
               Contact
-            </a>
-            <span className="text-slate-700">·</span>
-            <a
-              href="/privacy"
-              className="text-sm text-slate-500 hover:text-emerald-400 transition-colors"
-            >
-              Privacy
             </a>
           </div>
         </footer>
