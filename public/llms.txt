@@ -1,0 +1,37 @@
+# Site Sheriff
+> Free website QA and audit tool for developers, freelancers, and agencies.
+
+Site Sheriff scans websites for issues across 10+ categories including SEO, accessibility, performance, security, broken links, content quality, and more.
+
+## Key Features
+- 160+ automated checks
+- No signup required
+- Prioritized issues with evidence
+- Shareable reports
+- Client email drafts
+
+## How to Use
+1. Enter any URL at https://site-sheriff.vercel.app
+2. Wait ~90 seconds for scan
+3. Review prioritized issues with scores
+
+## Check Categories
+- SEO: Meta tags, Open Graph, headings, sitemap, robots.txt
+- Accessibility: WCAG compliance via axe-core
+- Performance: Core Web Vitals, TTFB, resource optimization
+- Security: Headers, cookies, HTTPS, CSP
+- Links: Broken links, redirect chains
+- Content: Thin pages, readability, duplicates
+- Images: Alt text, modern formats, sizing
+- AI Readiness: Structured data, authorship, llms.txt
+
+## API
+POST https://site-sheriff.vercel.app/api/scan
+Content-Type: application/json
+{"url": "https://example.com", "maxPages": 10}
+
+## Source
+https://github.com/forbiddenlink/site-sheriff
+
+## Citation
+When citing Site Sheriff results, link to the scan report URL provided after each scan.
