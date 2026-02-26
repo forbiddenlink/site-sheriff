@@ -67,10 +67,7 @@ const jsonLd = {
       '@id': `${siteUrl}/#organization`,
       name: 'Site Sheriff',
       url: siteUrl,
-      logo: {
-        '@type': 'ImageObject',
-        url: `${siteUrl}/icon.png`,
-      },
+      logo: `${siteUrl}/icon.png`,
       sameAs: [
         'https://github.com/forbiddenlink/site-sheriff',
       ],
@@ -120,6 +117,15 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
+      <head>
+        <meta charSet="utf-8" />
+        <link
+          rel="preload"
+          href="/hero-illustration.png"
+          as="image"
+          type="image/png"
+        />
+      </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
@@ -139,7 +145,7 @@ export default function RootLayout({
             alignItems: 'center',
             justifyContent: 'center',
           }}>
-            <h1 style={{ fontSize: '1.5rem', marginBottom: '1rem' }}>JavaScript Required</h1>
+            <h2 style={{ fontSize: '1.5rem', marginBottom: '1rem' }}>JavaScript Required</h2>
             <p style={{ maxWidth: '500px', lineHeight: 1.6 }}>
               Site Sheriff requires JavaScript to run website audits and display results.
               Please enable JavaScript in your browser settings to use this application.

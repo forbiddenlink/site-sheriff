@@ -2,8 +2,8 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 
 export const metadata: Metadata = {
-  title: 'Privacy Policy — Site Sheriff',
-  description: 'Privacy policy for Site Sheriff website audit tool.',
+  title: 'Privacy Policy — Site Sheriff Website Auditor',
+  description: 'Privacy policy for Site Sheriff, the free website QA and audit tool. Learn how we handle your data, what we collect, and how we protect your privacy.',
 };
 
 export default function PrivacyPage() {
