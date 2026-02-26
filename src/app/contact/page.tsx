@@ -22,8 +22,11 @@ export default function ContactPage() {
         <div className="space-y-8 text-slate-300 leading-relaxed">
           <section>
             <h2 className="text-xl font-semibold text-slate-100 mb-3">Get in Touch</h2>
-            <p>
+            <p className="mb-4">
               We love hearing from our users! Whether you have a question, found a bug, or want to suggest a feature, there are several ways to reach us.
+            </p>
+            <p>
+              Site Sheriff is a solo project, so response times may vary. That said, I read every message and appreciate feedback that helps improve the tool.
             </p>
           </section>
 
@@ -77,7 +80,7 @@ export default function ContactPage() {
 
           <section>
             <h2 className="text-xl font-semibold text-slate-100 mb-3">Contributing</h2>
-            <p>
+            <p className="mb-4">
               Site Sheriff is open source! If you want to contribute code, documentation, or translations, check out our{' '}
               <a
                 href="https://github.com/forbiddenlink/site-sheriff"
@@ -88,6 +91,16 @@ export default function ContactPage() {
                 GitHub repository
               </a>
               .
+            </p>
+            <p>
+              Contributions of all sizes are welcome, from fixing typos to implementing new audit checks. For larger changes, opening an issue first to discuss the approach is appreciated.
+            </p>
+          </section>
+
+          <section>
+            <h2 className="text-xl font-semibold text-slate-100 mb-3">Common Questions</h2>
+            <p>
+              Before opening an issue, check existing GitHub issues for similar questions. Common topics include scan timeouts on large sites, interpreting audit results, and requesting new checks. Answers to frequently asked questions often end up in the README.
             </p>
           </section>
         </div>

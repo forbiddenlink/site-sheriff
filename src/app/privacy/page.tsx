@@ -15,14 +15,18 @@ export default function PrivacyPage() {
         <div className="space-y-6 text-slate-300">
           <section>
             <h2 className="text-xl font-semibold text-slate-100 mb-3">What We Collect</h2>
-            <p>
-              Site Sheriff collects minimal data to provide our website auditing service:
+            <p className="mb-3">
+              Site Sheriff collects minimal data to provide our website auditing service. We believe in data minimization and only collect what is strictly necessary for the tool to function:
             </p>
             <ul className="list-disc list-inside mt-2 space-y-1">
               <li>URLs you submit for scanning</li>
-              <li>Scan results and reports</li>
-              <li>Basic analytics (page views, scan counts)</li>
+              <li>Scan results and reports generated from those URLs</li>
+              <li>Basic analytics (page views, scan counts, error rates)</li>
+              <li>Technical data necessary for site operation (IP addresses for rate limiting)</li>
             </ul>
+            <p className="mt-3">
+              We do not collect personal information such as names, email addresses, or payment information. No account creation is required to use Site Sheriff.
+            </p>
           </section>
 
           <section>
@@ -74,29 +78,34 @@ export default function PrivacyPage() {
         </div>
 
         <footer className="mt-16 pt-8 border-t border-slate-800 flex flex-col items-center gap-3">
-          <div className="flex items-center gap-4 flex-wrap justify-center">
+          <div className="flex items-center gap-4 flex-wrap justify-center text-sm">
             <Link
               href="/"
-              className="text-sm text-slate-500 hover:text-emerald-400 transition-colors"
+              className="text-slate-500 hover:text-emerald-400 transition-colors"
             >
-              ← Back to Site Sheriff
+              Home
+            </Link>
+            <span className="text-slate-700">·</span>
+            <Link
+              href="/about"
+              className="text-slate-500 hover:text-emerald-400 transition-colors"
+            >
+              About
             </Link>
             <span className="text-slate-700">·</span>
             <Link
               href="/scans"
-              className="text-sm text-slate-500 hover:text-emerald-400 transition-colors"
+              className="text-slate-500 hover:text-emerald-400 transition-colors"
             >
               Scans
             </Link>
             <span className="text-slate-700">·</span>
-            <a
-              href="https://github.com/forbiddenlink/site-sheriff/issues"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-sm text-slate-500 hover:text-emerald-400 transition-colors"
+            <Link
+              href="/contact"
+              className="text-slate-500 hover:text-emerald-400 transition-colors"
             >
               Contact
-            </a>
+            </Link>
           </div>
         </footer>
       </div>

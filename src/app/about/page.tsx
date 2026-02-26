@@ -3,7 +3,7 @@ import Link from 'next/link';
 
 export const metadata: Metadata = {
   title: 'About Site Sheriff — Free Website QA & Audit Tool',
-  description: 'Learn about Site Sheriff, the free website audit tool that runs 160+ checks across SEO, security, accessibility, performance, and more. Built for freelancers and agencies.',
+  description: 'Site Sheriff: free website audits with 160+ checks for SEO, security, accessibility, and performance. Built for freelancers and agencies.',
 };
 
 export default function AboutPage() {
@@ -48,8 +48,11 @@ export default function AboutPage() {
 
           <section>
             <h2 className="text-xl font-semibold text-slate-100 mb-3">Why We Built This</h2>
-            <p>
+            <p className="mb-4">
               We believe every website deserves a thorough health check, regardless of budget. Existing tools are either expensive (enterprise pricing) or limited (free tiers with caps). Site Sheriff provides agency-grade audits completely free, with no signup required.
+            </p>
+            <p>
+              Whether you&apos;re a solo developer launching a side project, a freelancer reviewing client sites, or an agency managing dozens of properties, Site Sheriff gives you the insights you need to ship with confidence.
             </p>
           </section>
 
