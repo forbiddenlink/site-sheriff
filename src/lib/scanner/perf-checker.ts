@@ -9,6 +9,20 @@ export interface LcpElement {
   size: { width: number; height: number } | null;
 }
 
+export interface InpAttribution {
+  eventType: string; // click, keydown, pointerdown, etc.
+  target: {
+    tagName: string;
+    id: string | null;
+    className: string | null;
+    textSnippet: string | null;
+  } | null;
+  duration: number; // Total interaction duration in ms
+  inputDelay: number; // Time before processing started
+  processingTime: number; // Time spent in event handlers
+  presentationDelay: number; // Time to render after processing
+}
+
 export interface PerfResult {
   url: string;
   metrics: {
@@ -16,6 +30,7 @@ export interface PerfResult {
     largestContentfulPaint: number | null;
     lcpElement: LcpElement | null;
     interactionToNextPaint: number | null;
+    inpAttribution: InpAttribution | null;
     timeToInteractive: number | null;
     totalBlockingTime: number | null;
     cumulativeLayoutShift: number | null;
@@ -131,14 +146,18 @@ export async function checkPerformance(url: string, options?: PerfCheckOptions):
     // Get INP (Interaction to Next Paint) via PerformanceObserver
     // INP measures responsiveness - the latency of all interactions during page lifecycle
     let inp: number | null = null;
+    let inpAttribution: InpAttribution | null = null;
     try {
-      inp = await page.evaluate(() => {
-        return new Promise<number | null>((resolve) => {
-          let maxINP = 0;
+      const inpData = await page.evaluate(() => {
+        return new Promise<{ inp: number; attribution: InpAttribution } | null>((resolve) => {
+          let worstEntry: PerformanceEventTiming | null = null;
           const observer = new PerformanceObserver((list) => {
             for (const entry of list.getEntries()) {
               if (entry.entryType === 'event') {
-                maxINP = Math.max(maxINP, (entry as PerformanceEventTiming).duration);
+                const eventEntry = entry as PerformanceEventTiming;
+                if (!worstEntry || eventEntry.duration > worstEntry.duration) {
+                  worstEntry = eventEntry;
+                }
               }
             }
           });
@@ -151,10 +170,45 @@ export async function checkPerformance(url: string, options?: PerfCheckOptions):
           // Sample for 5 seconds to capture interaction events
           setTimeout(() => {
             observer.disconnect();
-            resolve(maxINP > 0 ? Math.round(maxINP) : null);
+            if (!worstEntry || worstEntry.duration === 0) {
+              resolve(null);
+              return;
+            }
+
+            const duration = Math.round(worstEntry.duration);
+            const inputDelay = Math.round(worstEntry.processingStart - worstEntry.startTime);
+            const processingTime = Math.round(worstEntry.processingEnd - worstEntry.processingStart);
+            const presentationDelay = Math.round(worstEntry.startTime + worstEntry.duration - worstEntry.processingEnd);
+
+            let targetInfo = null;
+            if (worstEntry.target) {
+              const el = worstEntry.target as Element;
+              targetInfo = {
+                tagName: el.tagName.toLowerCase(),
+                id: el.id || null,
+                className: el.className && typeof el.className === 'string' ? el.className : null,
+                textSnippet: el.textContent?.trim().slice(0, 50) || null,
+              };
+            }
+
+            resolve({
+              inp: duration,
+              attribution: {
+                eventType: worstEntry.name,
+                target: targetInfo,
+                duration,
+                inputDelay,
+                processingTime,
+                presentationDelay,
+              },
+            });
           }, 5000);
         });
       });
+      if (inpData) {
+        inp = inpData.inp;
+        inpAttribution = inpData.attribution;
+      }
     } catch {
       // INP not available
     }
@@ -164,6 +218,7 @@ export async function checkPerformance(url: string, options?: PerfCheckOptions):
       largestContentfulPaint: lcp,
       lcpElement,
       interactionToNextPaint: inp,
+      inpAttribution,
       timeToInteractive: null, // Would need Lighthouse for true TTI
       totalBlockingTime: null, // Would need Lighthouse
       cumulativeLayoutShift: perfTiming.cls,
@@ -215,6 +270,7 @@ export async function checkPerformance(url: string, options?: PerfCheckOptions):
         largestContentfulPaint: null,
         lcpElement: null,
         interactionToNextPaint: null,
+        inpAttribution: null,
         timeToInteractive: null,
         totalBlockingTime: null,
         cumulativeLayoutShift: null,

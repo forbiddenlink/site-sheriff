@@ -891,6 +891,10 @@ export async function runScan(ctx: ScanContext): Promise<void> {
 
         // INP (Interaction to Next Paint) issues
         // Good: <200ms, Needs Improvement: 200-500ms, Poor: >500ms
+        const inpAttr = m.inpAttribution;
+        const inpBreakdown = inpAttr
+          ? ` The slowest interaction was "${inpAttr.eventType}" on <${inpAttr.target?.tagName || 'unknown'}>${inpAttr.target?.id ? ` #${inpAttr.target.id}` : ''} (input delay: ${inpAttr.inputDelay}ms, processing: ${inpAttr.processingTime}ms, presentation: ${inpAttr.presentationDelay}ms).`
+          : '';
         if (m.interactionToNextPaint !== null && m.interactionToNextPaint > 500) {
           allIssues.push({
             code: 'slow_inp',
@@ -898,8 +902,8 @@ export async function runScan(ctx: ScanContext): Promise<void> {
             category: 'PERFORMANCE',
             title: `Slow Interaction to Next Paint (${m.interactionToNextPaint}ms)`,
             whyItMatters: 'INP above 500ms means the page is unresponsive to user interactions. This is a Core Web Vital that directly impacts user experience and SEO rankings.',
-            howToFix: 'Reduce JavaScript execution time, break up long tasks, optimize event handlers, and consider using web workers for heavy computations.',
-            evidence: { url: pageResult.url, inp: m.interactionToNextPaint },
+            howToFix: `Reduce JavaScript execution time, break up long tasks, optimize event handlers, and consider using web workers for heavy computations.${inpBreakdown}`,
+            evidence: { url: pageResult.url, inp: m.interactionToNextPaint, inpAttribution: m.inpAttribution },
             impact: 4,
             effort: 3,
           });
@@ -910,8 +914,8 @@ export async function runScan(ctx: ScanContext): Promise<void> {
             category: 'PERFORMANCE',
             title: `Interaction to Next Paint needs improvement (${m.interactionToNextPaint}ms)`,
             whyItMatters: 'INP between 200-500ms indicates the page could be more responsive. This is a Core Web Vital metric that affects search ranking and user satisfaction.',
-            howToFix: 'Optimize event handlers, reduce main thread blocking, use requestIdleCallback for non-critical work, and consider code splitting.',
-            evidence: { url: pageResult.url, inp: m.interactionToNextPaint },
+            howToFix: `Optimize event handlers, reduce main thread blocking, use requestIdleCallback for non-critical work, and consider code splitting.${inpBreakdown}`,
+            evidence: { url: pageResult.url, inp: m.interactionToNextPaint, inpAttribution: m.inpAttribution },
             impact: 3,
             effort: 2,
           });
@@ -990,14 +994,18 @@ export async function runScan(ctx: ScanContext): Promise<void> {
 
           // Mobile INP check
           if (mm.interactionToNextPaint !== null && mm.interactionToNextPaint > 500) {
+            const mobileInpAttr = mm.inpAttribution;
+            const mobileInpBreakdown = mobileInpAttr
+              ? ` The slowest interaction was "${mobileInpAttr.eventType}" on <${mobileInpAttr.target?.tagName || 'unknown'}>${mobileInpAttr.target?.id ? ` #${mobileInpAttr.target.id}` : ''} (input delay: ${mobileInpAttr.inputDelay}ms, processing: ${mobileInpAttr.processingTime}ms, presentation: ${mobileInpAttr.presentationDelay}ms).`
+              : '';
             allIssues.push({
               code: 'mobile_slow_inp',
               severity: 'P1',
               category: 'PERFORMANCE',
               title: `[Mobile] Slow Interaction to Next Paint (${mm.interactionToNextPaint}ms)`,
               whyItMatters: 'Mobile devices have slower processors, making responsiveness even more critical. INP above 500ms on mobile means users experience significant lag when interacting.',
-              howToFix: 'Reduce JavaScript execution time on mobile, defer non-critical scripts, optimize touch event handlers, and minimize main thread blocking.',
-              evidence: { url: homepagePerf.url, inp: mm.interactionToNextPaint, viewport: '375x812 (mobile)' },
+              howToFix: `Reduce JavaScript execution time on mobile, defer non-critical scripts, optimize touch event handlers, and minimize main thread blocking.${mobileInpBreakdown}`,
+              evidence: { url: homepagePerf.url, inp: mm.interactionToNextPaint, inpAttribution: mm.inpAttribution, viewport: '375x812 (mobile)' },
               impact: 4,
               effort: 3,
             });
