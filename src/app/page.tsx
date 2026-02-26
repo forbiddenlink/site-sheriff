@@ -557,9 +557,14 @@ export default function Home() {
           </a>
           <span className="text-slate-700">·</span>
           <a
-            href="https://github.com/forbiddenlink/site-sheriff/issues"
-            target="_blank"
-            rel="noopener noreferrer"
+            href="/about"
+            className="text-xs text-slate-500 hover:text-emerald-400 transition-colors font-mono"
+          >
+            About
+          </a>
+          <span className="text-slate-700">·</span>
+          <a
+            href="/contact"
             className="text-xs text-slate-500 hover:text-emerald-400 transition-colors font-mono"
           >
             Contact
