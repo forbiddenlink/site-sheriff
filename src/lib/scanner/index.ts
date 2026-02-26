@@ -833,6 +833,9 @@ export async function runScan(ctx: ScanContext): Promise<void> {
         }
 
         // LCP issues
+        const lcpElementDesc = m.lcpElement
+          ? ` The LCP element is <${m.lcpElement.tagName}>${m.lcpElement.id ? ` #${m.lcpElement.id}` : ''}${m.lcpElement.src ? ` (${m.lcpElement.src.slice(0, 80)})` : ''}`
+          : '';
         if (m.largestContentfulPaint !== null && m.largestContentfulPaint > 4000) {
           allIssues.push({
             code: 'slow_lcp',
@@ -840,8 +843,8 @@ export async function runScan(ctx: ScanContext): Promise<void> {
             category: 'PERFORMANCE',
             title: `Slow Largest Contentful Paint (${m.largestContentfulPaint}ms)`,
             whyItMatters: 'Largest Contentful Paint measures when the largest content element becomes visible. LCP above 4s is rated poor by Core Web Vitals.',
-            howToFix: 'Optimize the largest image or text block on the page. Use responsive images, preload hero images, and reduce server response time.',
-            evidence: { url: pageResult.url, lcp: m.largestContentfulPaint },
+            howToFix: `Optimize the largest image or text block on the page.${lcpElementDesc} Use responsive images, preload hero images, and reduce server response time.`,
+            evidence: { url: pageResult.url, lcp: m.largestContentfulPaint, lcpElement: m.lcpElement },
             impact: 5,
             effort: 3,
           });
@@ -852,8 +855,8 @@ export async function runScan(ctx: ScanContext): Promise<void> {
             category: 'PERFORMANCE',
             title: `Largest Contentful Paint needs improvement (${m.largestContentfulPaint}ms)`,
             whyItMatters: 'LCP between 2.5s and 4s means the main content is loading slower than ideal. This is a Core Web Vital metric that affects search ranking.',
-            howToFix: 'Preload the LCP element, optimize images with modern formats (WebP/AVIF), and use a CDN for static assets.',
-            evidence: { url: pageResult.url, lcp: m.largestContentfulPaint },
+            howToFix: `Preload the LCP element and optimize images with modern formats (WebP/AVIF).${lcpElementDesc} Use a CDN for static assets.`,
+            evidence: { url: pageResult.url, lcp: m.largestContentfulPaint, lcpElement: m.lcpElement },
             impact: 4,
             effort: 2,
           });
@@ -955,14 +958,17 @@ export async function runScan(ctx: ScanContext): Promise<void> {
           }
 
           if (mm.largestContentfulPaint !== null && mm.largestContentfulPaint > 4000) {
+            const mobileLcpDesc = mm.lcpElement
+              ? ` The LCP element is <${mm.lcpElement.tagName}>${mm.lcpElement.id ? ` #${mm.lcpElement.id}` : ''}${mm.lcpElement.src ? ` (${mm.lcpElement.src.slice(0, 80)})` : ''}`
+              : '';
             allIssues.push({
               code: 'mobile_slow_lcp',
               severity: 'P1',
               category: 'PERFORMANCE',
               title: `[Mobile] Slow Largest Contentful Paint (${mm.largestContentfulPaint}ms)`,
               whyItMatters: 'Mobile LCP above 4s is rated poor by Core Web Vitals. Over 60% of web traffic is mobile — this directly impacts your largest audience.',
-              howToFix: 'Serve appropriately sized images for mobile, use srcset/sizes attributes, preload hero images, and reduce server response time.',
-              evidence: { url: homepagePerf.url, lcp: mm.largestContentfulPaint, viewport: '375x812 (mobile)' },
+              howToFix: `Serve appropriately sized images for mobile, use srcset/sizes attributes, preload hero images, and reduce server response time.${mobileLcpDesc}`,
+              evidence: { url: homepagePerf.url, lcp: mm.largestContentfulPaint, lcpElement: mm.lcpElement, viewport: '375x812 (mobile)' },
               impact: 5,
               effort: 3,
             });

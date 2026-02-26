@@ -1,10 +1,20 @@
 import { chromium } from 'playwright';
 
+export interface LcpElement {
+  tagName: string;
+  id: string | null;
+  className: string | null;
+  src: string | null; // For images/videos
+  textSnippet: string | null; // For text elements (first 100 chars)
+  size: { width: number; height: number } | null;
+}
+
 export interface PerfResult {
   url: string;
   metrics: {
     firstContentfulPaint: number | null;
     largestContentfulPaint: number | null;
+    lcpElement: LcpElement | null;
     interactionToNextPaint: number | null;
     timeToInteractive: number | null;
     totalBlockingTime: number | null;
@@ -67,17 +77,42 @@ export async function checkPerformance(url: string, options?: PerfCheckOptions):
       };
     });
 
-    // Get LCP via CDP
+    // Get LCP via CDP - capture both timing and element info
     let lcp: number | null = null;
+    let lcpElement: LcpElement | null = null;
     try {
       // Wait a moment for LCP to settle
       await page.waitForTimeout(1000);
-      const lcpEntries = await page.evaluate(() => {
-        return new Promise<number | null>((resolve) => {
+      const lcpData = await page.evaluate(() => {
+        return new Promise<{ time: number; element: LcpElement | null } | null>((resolve) => {
           const observer = new PerformanceObserver((list) => {
             const entries = list.getEntries();
-            const last = entries.at(-1);
-            resolve(last ? Math.round(last.startTime) : null);
+            const last = entries.at(-1) as PerformanceEntry & { element?: Element };
+            if (!last) {
+              resolve(null);
+              observer.disconnect();
+              return;
+            }
+
+            let elementInfo: LcpElement | null = null;
+            if (last.element) {
+              const el = last.element;
+              const rect = el.getBoundingClientRect();
+              elementInfo = {
+                tagName: el.tagName.toLowerCase(),
+                id: el.id || null,
+                className: el.className && typeof el.className === 'string' ? el.className : null,
+                src: (el as HTMLImageElement | HTMLVideoElement).src ||
+                     (el as HTMLImageElement).currentSrc ||
+                     el.querySelector('img')?.src || null,
+                textSnippet: el.tagName === 'IMG' || el.tagName === 'VIDEO'
+                  ? null
+                  : (el.textContent?.trim().slice(0, 100) || null),
+                size: { width: Math.round(rect.width), height: Math.round(rect.height) },
+              };
+            }
+
+            resolve({ time: Math.round(last.startTime), element: elementInfo });
             observer.disconnect();
           });
           observer.observe({ type: 'largest-contentful-paint', buffered: true });
@@ -85,7 +120,10 @@ export async function checkPerformance(url: string, options?: PerfCheckOptions):
           setTimeout(() => resolve(null), 2000);
         });
       });
-      lcp = lcpEntries;
+      if (lcpData) {
+        lcp = lcpData.time;
+        lcpElement = lcpData.element;
+      }
     } catch {
       // LCP not available
     }
@@ -124,6 +162,7 @@ export async function checkPerformance(url: string, options?: PerfCheckOptions):
     const metrics = {
       firstContentfulPaint: perfTiming.fcp,
       largestContentfulPaint: lcp,
+      lcpElement,
       interactionToNextPaint: inp,
       timeToInteractive: null, // Would need Lighthouse for true TTI
       totalBlockingTime: null, // Would need Lighthouse
@@ -174,6 +213,7 @@ export async function checkPerformance(url: string, options?: PerfCheckOptions):
       metrics: {
         firstContentfulPaint: null,
         largestContentfulPaint: null,
+        lcpElement: null,
         interactionToNextPaint: null,
         timeToInteractive: null,
         totalBlockingTime: null,
