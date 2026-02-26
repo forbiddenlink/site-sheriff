@@ -863,6 +863,11 @@ export async function runScan(ctx: ScanContext): Promise<void> {
         }
 
         // CLS issues
+        const clsAttr = m.clsAttribution;
+        const clsSources = clsAttr?.sources?.slice(0, 3).map(s =>
+          `<${s.tagName}>${s.id ? ` #${s.id}` : ''} (shift: ${s.shiftValue})`
+        ).join(', ');
+        const clsBreakdown = clsSources ? ` Top shifting elements: ${clsSources}.` : '';
         if (m.cumulativeLayoutShift !== null && m.cumulativeLayoutShift > 0.25) {
           allIssues.push({
             code: 'poor_cls',
@@ -870,8 +875,8 @@ export async function runScan(ctx: ScanContext): Promise<void> {
             category: 'PERFORMANCE',
             title: `Poor Cumulative Layout Shift (${m.cumulativeLayoutShift})`,
             whyItMatters: 'CLS above 0.25 means page elements shift significantly during loading, causing a frustrating user experience and misclicks.',
-            howToFix: 'Set explicit width and height on images/videos, avoid inserting content above existing content, and use CSS contain where possible.',
-            evidence: { url: pageResult.url, cls: m.cumulativeLayoutShift },
+            howToFix: `Set explicit width and height on images/videos, avoid inserting content above existing content, and use CSS contain where possible.${clsBreakdown}`,
+            evidence: { url: pageResult.url, cls: m.cumulativeLayoutShift, clsAttribution: m.clsAttribution },
             impact: 4,
             effort: 2,
           });
@@ -882,8 +887,8 @@ export async function runScan(ctx: ScanContext): Promise<void> {
             category: 'PERFORMANCE',
             title: `Cumulative Layout Shift needs improvement (${m.cumulativeLayoutShift})`,
             whyItMatters: 'CLS between 0.1 and 0.25 indicates some layout instability. This is a Core Web Vital that affects user experience and SEO.',
-            howToFix: 'Add size attributes to images and embeds, avoid dynamically injected content, and use font-display: swap for web fonts.',
-            evidence: { url: pageResult.url, cls: m.cumulativeLayoutShift },
+            howToFix: `Add size attributes to images and embeds, avoid dynamically injected content, and use font-display: swap for web fonts.${clsBreakdown}`,
+            evidence: { url: pageResult.url, cls: m.cumulativeLayoutShift, clsAttribution: m.clsAttribution },
             impact: 3,
             effort: 2,
           });
@@ -979,14 +984,19 @@ export async function runScan(ctx: ScanContext): Promise<void> {
           }
 
           if (mm.cumulativeLayoutShift !== null && mm.cumulativeLayoutShift > 0.25) {
+            const mobileClsAttr = mm.clsAttribution;
+            const mobileClsSources = mobileClsAttr?.sources?.slice(0, 3).map(s =>
+              `<${s.tagName}>${s.id ? ` #${s.id}` : ''} (shift: ${s.shiftValue})`
+            ).join(', ');
+            const mobileClsBreakdown = mobileClsSources ? ` Top shifting elements: ${mobileClsSources}.` : '';
             allIssues.push({
               code: 'mobile_poor_cls',
               severity: 'P1',
               category: 'PERFORMANCE',
               title: `[Mobile] Poor Cumulative Layout Shift (${mm.cumulativeLayoutShift})`,
               whyItMatters: 'Layout shifts are especially disruptive on mobile where the viewport is small. Elements jumping around causes accidental taps and frustration.',
-              howToFix: 'Set explicit dimensions on images/ads, avoid dynamically inserted content above the fold, and use CSS contain on mobile layouts.',
-              evidence: { url: homepagePerf.url, cls: mm.cumulativeLayoutShift, viewport: '375x812 (mobile)' },
+              howToFix: `Set explicit dimensions on images/ads, avoid dynamically inserted content above the fold, and use CSS contain on mobile layouts.${mobileClsBreakdown}`,
+              evidence: { url: homepagePerf.url, cls: mm.cumulativeLayoutShift, clsAttribution: mm.clsAttribution, viewport: '375x812 (mobile)' },
               impact: 4,
               effort: 2,
             });

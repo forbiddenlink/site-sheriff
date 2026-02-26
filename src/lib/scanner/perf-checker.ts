@@ -23,6 +23,20 @@ export interface InpAttribution {
   presentationDelay: number; // Time to render after processing
 }
 
+export interface ClsSource {
+  tagName: string;
+  id: string | null;
+  className: string | null;
+  shiftValue: number; // Individual contribution to CLS
+  previousRect: { x: number; y: number; width: number; height: number };
+  currentRect: { x: number; y: number; width: number; height: number };
+}
+
+export interface ClsAttribution {
+  totalShifts: number; // Number of layout shift events
+  sources: ClsSource[]; // Top shifting elements (sorted by impact)
+}
+
 export interface PerfResult {
   url: string;
   metrics: {
@@ -34,6 +48,7 @@ export interface PerfResult {
     timeToInteractive: number | null;
     totalBlockingTime: number | null;
     cumulativeLayoutShift: number | null;
+    clsAttribution: ClsAttribution | null;
     domContentLoaded: number | null;
     loadTime: number | null;
     transferSize: number | null;
@@ -79,9 +94,56 @@ export async function checkPerformance(url: string, options?: PerfCheckOptions):
       const resources = performance.getEntriesByType('resource') as PerformanceResourceTiming[];
       const totalTransferSize = resources.reduce((sum, r) => sum + (r.transferSize || 0), 0);
 
-      // CLS via layout-shift entries
-      const layoutShifts = performance.getEntriesByType('layout-shift') as (PerformanceEntry & { value?: number })[];
+      // CLS via layout-shift entries with source attribution
+      interface LayoutShiftEntry extends PerformanceEntry {
+        value?: number;
+        sources?: Array<{
+          node?: Element;
+          previousRect: DOMRectReadOnly;
+          currentRect: DOMRectReadOnly;
+        }>;
+      }
+      const layoutShifts = performance.getEntriesByType('layout-shift') as LayoutShiftEntry[];
       const cls = layoutShifts.reduce((sum, e) => sum + (e.value || 0), 0);
+
+      // Collect sources from all layout shifts, tracking contribution per element
+      const sourceMap = new Map<Element, { shifts: number; totalValue: number; lastPrev: DOMRect; lastCurr: DOMRect }>();
+      for (const shift of layoutShifts) {
+        if (shift.sources && shift.value) {
+          const perSourceValue = shift.value / shift.sources.length;
+          for (const source of shift.sources) {
+            if (source.node) {
+              const existing = sourceMap.get(source.node);
+              if (existing) {
+                existing.shifts++;
+                existing.totalValue += perSourceValue;
+                existing.lastPrev = source.previousRect as DOMRect;
+                existing.lastCurr = source.currentRect as DOMRect;
+              } else {
+                sourceMap.set(source.node, {
+                  shifts: 1,
+                  totalValue: perSourceValue,
+                  lastPrev: source.previousRect as DOMRect,
+                  lastCurr: source.currentRect as DOMRect,
+                });
+              }
+            }
+          }
+        }
+      }
+
+      // Sort by impact and take top 5
+      const clsSources = Array.from(sourceMap.entries())
+        .sort((a, b) => b[1].totalValue - a[1].totalValue)
+        .slice(0, 5)
+        .map(([el, data]) => ({
+          tagName: el.tagName.toLowerCase(),
+          id: el.id || null,
+          className: el.className && typeof el.className === 'string' ? el.className : null,
+          shiftValue: Math.round(data.totalValue * 1000) / 1000,
+          previousRect: { x: Math.round(data.lastPrev.x), y: Math.round(data.lastPrev.y), width: Math.round(data.lastPrev.width), height: Math.round(data.lastPrev.height) },
+          currentRect: { x: Math.round(data.lastCurr.x), y: Math.round(data.lastCurr.y), width: Math.round(data.lastCurr.width), height: Math.round(data.lastCurr.height) },
+        }));
 
       return {
         domContentLoaded: timing ? Math.round(timing.domContentLoadedEventEnd - timing.startTime) : null,
@@ -89,6 +151,7 @@ export async function checkPerformance(url: string, options?: PerfCheckOptions):
         transferSize: Math.round(totalTransferSize),
         resourceCount: resources.length,
         cls: Math.round(cls * 1000) / 1000, // 3 decimal places
+        clsAttribution: layoutShifts.length > 0 ? { totalShifts: layoutShifts.length, sources: clsSources } : null,
       };
     });
 
@@ -222,6 +285,7 @@ export async function checkPerformance(url: string, options?: PerfCheckOptions):
       timeToInteractive: null, // Would need Lighthouse for true TTI
       totalBlockingTime: null, // Would need Lighthouse
       cumulativeLayoutShift: perfTiming.cls,
+      clsAttribution: perfTiming.clsAttribution,
       domContentLoaded: perfTiming.domContentLoaded,
       loadTime,
       transferSize: perfTiming.transferSize,
@@ -274,6 +338,7 @@ export async function checkPerformance(url: string, options?: PerfCheckOptions):
         timeToInteractive: null,
         totalBlockingTime: null,
         cumulativeLayoutShift: null,
+        clsAttribution: null,
         domContentLoaded: null,
         loadTime: null,
         transferSize: null,
