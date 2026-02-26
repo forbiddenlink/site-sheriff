@@ -35,7 +35,7 @@ function normalizeUrl(url: string): string {
   try {
     const u = new URL(url);
     // Remove trailing slash, hash, and common tracking params
-    let path = u.pathname.replace(/\/+$/, '') || '/';
+    const path = u.pathname.replace(/\/+$/, '') || '/';
     return u.origin + path;
   } catch {
     return url;
@@ -79,7 +79,7 @@ export function CrawlMap({ pages, baseUrl }: CrawlMapProps) {
     const nodes: GraphNode[] = [];
 
     // Create nodes from crawled pages
-    pages.forEach((page, i) => {
+    pages.forEach((page, _i) => {
       const normUrl = normalizeUrl(page.url);
       if (urlToIndex.has(normUrl)) return; // skip duplicates
       urlToIndex.set(normUrl, nodes.length);

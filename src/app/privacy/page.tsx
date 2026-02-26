@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 
 export const metadata: Metadata = {
   title: 'Privacy Policy — Site Sheriff',
@@ -74,19 +75,19 @@ export default function PrivacyPage() {
 
         <footer className="mt-16 pt-8 border-t border-slate-800 flex flex-col items-center gap-3">
           <div className="flex items-center gap-4 flex-wrap justify-center">
-            <a
+            <Link
               href="/"
               className="text-sm text-slate-500 hover:text-emerald-400 transition-colors"
             >
               ← Back to Site Sheriff
-            </a>
+            </Link>
             <span className="text-slate-700">·</span>
-            <a
+            <Link
               href="/scans"
               className="text-sm text-slate-500 hover:text-emerald-400 transition-colors"
             >
               Scans
-            </a>
+            </Link>
             <span className="text-slate-700">·</span>
             <a
               href="https://github.com/forbiddenlink/site-sheriff/issues"
