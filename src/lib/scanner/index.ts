@@ -1,7 +1,7 @@
 import { supabaseAdmin } from '../supabase-server';
 import { Crawler, type CrawlResult } from './crawler';
 import { checkLinks, findBrokenLinks, findRedirectChains } from './link-checker';
-import { checkAccessibility, mapImpactToSeverity } from './a11y-checker';
+import { checkAccessibility, mapImpactToSeverity, getWCAG22Info } from './a11y-checker';
 import { checkSEO, checkDuplicates, checkStructuredData, checkSPARendering, validateOgImages, validateCanonicals, validateHreflangBidirectional, checkAnchorText } from './seo-checker';
 import { checkPerformance } from './perf-checker';
 import { checkSecurity, checkSecurityTxt, checkHttpsRedirect } from './security-checker';
@@ -13,7 +13,7 @@ import { checkContentQuality } from './content-checker';
 import { checkImageOptimization } from './image-checker';
 import { checkResourceOptimization } from './resource-checker';
 import { analyzeInternalLinking } from './linking-analyzer';
-import { checkEEAT } from './eeat-checker';
+import { checkEEAT, checkServiceWorker } from './eeat-checker';
 import { checkAIReadiness, checkLlmsTxt, checkAICrawlerAccess } from './ai-readiness-checker';
 import { checkContentSimilarity } from './content-similarity-checker';
 import type { ScanSettings, ScanProgress, ScanSummary, LinkData } from '../types';
@@ -712,16 +712,24 @@ export async function runScan(ctx: ScanContext): Promise<void> {
 
           // Create issues for violations
           for (const violation of a11yResult.violations) {
+            // Check if this is a WCAG 2.2 specific criterion
+            const wcag22Info = getWCAG22Info(violation.id);
+            const titlePrefix = wcag22Info ? `[WCAG 2.2] ` : '';
+            const wcag22Note = wcag22Info
+              ? ` This is a new WCAG 2.2 Level ${wcag22Info.level} criterion (${wcag22Info.criterion}).`
+              : '';
+
             allIssues.push({
               code: `a11y_${violation.id}`,
               severity: mapImpactToSeverity(violation.impact),
               category: 'ACCESSIBILITY',
-              title: violation.help,
-              whyItMatters: violation.description,
+              title: `${titlePrefix}${violation.help}`,
+              whyItMatters: `${violation.description}${wcag22Note}`,
               howToFix: `See ${violation.helpUrl} for guidance on fixing this issue.`,
               evidence: {
                 url: page.url,
                 nodes: violation.nodes.slice(0, 3), // Limit to 3 examples
+                ...(wcag22Info ? { wcag22Criterion: wcag22Info.criterion } : {}),
               },
               impact: impactToScore(violation.impact),
               effort: 2,
@@ -860,6 +868,34 @@ export async function runScan(ctx: ScanContext): Promise<void> {
             impact: 4,
             effort: 2,
           });
+        }
+
+        // LCP preload suggestion: if LCP is an image and LCP > 2000ms, suggest adding preload hint
+        const lcpEl = m.lcpElement;
+        if (lcpEl && m.largestContentfulPaint !== null && m.largestContentfulPaint > 2000) {
+          const isLcpImage = lcpEl.tagName === 'img' || lcpEl.src;
+          if (isLcpImage && lcpEl.src) {
+            // Check if there's already a preload for this resource (we'd need HTML access)
+            // For now, suggest preload for any LCP image above threshold
+            const srcUrl = lcpEl.src.startsWith('/') ? lcpEl.src : lcpEl.src;
+            const preloadHint = `<link rel="preload" as="image" href="${srcUrl.slice(0, 100)}">`;
+            allIssues.push({
+              code: 'missing_lcp_preload',
+              severity: 'P2',
+              category: 'PERFORMANCE',
+              title: 'LCP image could benefit from preloading',
+              whyItMatters: 'The Largest Contentful Paint element is an image that loads after page parsing begins. Adding a preload hint tells the browser to fetch it immediately, improving LCP timing.',
+              howToFix: `Add a preload hint in your <head>: ${preloadHint}. This allows the browser to start downloading the image as soon as it sees the preload, rather than waiting to discover it during rendering.`,
+              evidence: {
+                url: pageResult.url,
+                lcp: m.largestContentfulPaint,
+                lcpElement: lcpEl,
+                suggestedPreload: preloadHint,
+              },
+              impact: 3,
+              effort: 1,
+            });
+          }
         }
 
         // CLS issues
@@ -1045,6 +1081,39 @@ export async function runScan(ctx: ScanContext): Promise<void> {
     } else {
       // Performance disabled by user — still mark complete (not timed out)
       completedPhases.push('performance');
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Phase 6-sw: Service Worker runtime detection (homepage only)
+    // ─────────────────────────────────────────────────────────────────────────
+    if (!isNearDeadline() && !crawler.isFetchMode) {
+      const homepage = crawlResults[0];
+      if (homepage && !homepage.error) {
+        try {
+          const { chromium } = await import('playwright');
+          const browser = await chromium.launch({
+            headless: true,
+            args: ['--no-sandbox', '--disable-setuid-sandbox'],
+          });
+          const page = await browser.newPage();
+          await page.goto(homepage.url, { waitUntil: 'domcontentloaded', timeout: 15000 });
+
+          // Check if manifest was found in the E-E-A-T issues
+          const hasManifest = !allIssues.some(i => i.code === 'no_web_manifest');
+          const swIssues = await checkServiceWorker(homepage.url, page, hasManifest);
+          allIssues.push(...swIssues);
+
+          await browser.close();
+          completedPhases.push('service-worker');
+        } catch (error_) {
+          console.warn('Service Worker check failed:', error_);
+          completedPhases.push('service-worker');
+        }
+      } else {
+        completedPhases.push('service-worker');
+      }
+    } else {
+      completedPhases.push('service-worker');
     }
 
     // ─────────────────────────────────────────────────────────────────────────

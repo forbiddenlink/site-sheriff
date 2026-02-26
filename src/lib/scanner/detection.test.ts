@@ -1024,3 +1024,54 @@ describe('checkAIReadiness - dateModified freshness', () => {
     expect(freshnessIssue).toBeUndefined();
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// WCAG 2.2 Helper Functions
+// ─────────────────────────────────────────────────────────────────────────────
+
+import { isWCAG22Rule, getWCAG22Info, WCAG_22_RULES } from './a11y-checker';
+
+describe('WCAG 2.2 Helper Functions', () => {
+  it('should identify WCAG 2.2 specific rules', () => {
+    expect(isWCAG22Rule('focus-not-obscured-minimum')).toBe(true);
+    expect(isWCAG22Rule('target-size-minimum')).toBe(true);
+    expect(isWCAG22Rule('dragging-movements')).toBe(true);
+  });
+
+  it('should NOT identify generic axe rules as WCAG 2.2', () => {
+    expect(isWCAG22Rule('color-contrast')).toBe(false);
+    expect(isWCAG22Rule('image-alt')).toBe(false);
+    expect(isWCAG22Rule('link-name')).toBe(false);
+  });
+
+  it('should return WCAG 2.2 info for specific rules', () => {
+    const focusInfo = getWCAG22Info('focus-not-obscured-minimum');
+    expect(focusInfo).not.toBeNull();
+    expect(focusInfo?.criterion).toBe('2.4.11 Focus Not Obscured (Minimum)');
+    expect(focusInfo?.level).toBe('AA');
+
+    const targetInfo = getWCAG22Info('target-size-minimum');
+    expect(targetInfo).not.toBeNull();
+    expect(targetInfo?.criterion).toBe('2.5.8 Target Size (Minimum)');
+    expect(targetInfo?.level).toBe('AA');
+
+    const dragInfo = getWCAG22Info('dragging-movements');
+    expect(dragInfo).not.toBeNull();
+    expect(dragInfo?.criterion).toBe('2.5.7 Dragging Movements');
+    expect(dragInfo?.level).toBe('AA');
+  });
+
+  it('should return null for non-WCAG 2.2 rules', () => {
+    expect(getWCAG22Info('color-contrast')).toBeNull();
+    expect(getWCAG22Info('image-alt')).toBeNull();
+  });
+
+  it('should have all WCAG 2.2 rules defined with required fields', () => {
+    for (const [ruleId, info] of Object.entries(WCAG_22_RULES)) {
+      expect(info.criterion).toBeDefined();
+      expect(info.level).toMatch(/^(A|AA|AAA)$/);
+      expect(info.description).toBeDefined();
+      expect(info.description.length).toBeGreaterThan(10);
+    }
+  });
+});

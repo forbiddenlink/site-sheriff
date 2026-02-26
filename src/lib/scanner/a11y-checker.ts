@@ -118,3 +118,49 @@ export function mapImpactToSeverity(impact: A11yViolation['impact']): 'P0' | 'P1
       return 'P3';
   }
 }
+
+/**
+ * WCAG 2.2 specific rule IDs in axe-core
+ * These are new criteria introduced in WCAG 2.2 (December 2023)
+ */
+export const WCAG_22_RULES: Record<string, { criterion: string; level: 'A' | 'AA' | 'AAA'; description: string }> = {
+  'focus-not-obscured-minimum': {
+    criterion: '2.4.11 Focus Not Obscured (Minimum)',
+    level: 'AA',
+    description: 'Focused components must be at least partially visible and not entirely hidden by other content.',
+  },
+  'focus-not-obscured-enhanced': {
+    criterion: '2.4.12 Focus Not Obscured (Enhanced)',
+    level: 'AAA',
+    description: 'Focused components must be fully visible and not hidden by any author-created content.',
+  },
+  'target-size-minimum': {
+    criterion: '2.5.8 Target Size (Minimum)',
+    level: 'AA',
+    description: 'Interactive targets must be at least 24x24 CSS pixels, or have sufficient spacing.',
+  },
+  'target-size-enhanced': {
+    criterion: '2.5.5 Target Size (Enhanced)',
+    level: 'AAA',
+    description: 'Interactive targets should be at least 44x44 CSS pixels for easier activation.',
+  },
+  'dragging-movements': {
+    criterion: '2.5.7 Dragging Movements',
+    level: 'AA',
+    description: 'Functionality that uses dragging must have a single-pointer alternative.',
+  },
+};
+
+/**
+ * Check if a violation is a WCAG 2.2 specific criterion
+ */
+export function isWCAG22Rule(ruleId: string): boolean {
+  return ruleId in WCAG_22_RULES;
+}
+
+/**
+ * Get WCAG 2.2 info for a rule, if applicable
+ */
+export function getWCAG22Info(ruleId: string): { criterion: string; level: 'A' | 'AA' | 'AAA'; description: string } | null {
+  return WCAG_22_RULES[ruleId] ?? null;
+}

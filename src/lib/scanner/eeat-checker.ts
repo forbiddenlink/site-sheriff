@@ -463,6 +463,83 @@ export function checkPWAFeatures(result: CrawlResult): EEATIssue[] {
   return issues;
 }
 
+/**
+ * Check for Service Worker registration at runtime
+ * This requires a Playwright Page object to execute JavaScript
+ */
+export async function checkServiceWorker(
+  url: string,
+  page: import('playwright').Page,
+  hasManifest: boolean
+): Promise<EEATIssue[]> {
+  const issues: EEATIssue[] = [];
+  const isHomepage = new URL(url).pathname === '/';
+
+  if (!isHomepage) return issues;
+
+  try {
+    // Check for active Service Worker via JavaScript
+    const swStatus = await page.evaluate(async () => {
+      if (!('serviceWorker' in navigator)) {
+        return { supported: false, active: false, scriptURL: null };
+      }
+
+      // Check if there's an active controller
+      if (navigator.serviceWorker.controller) {
+        return {
+          supported: true,
+          active: true,
+          scriptURL: navigator.serviceWorker.controller.scriptURL,
+        };
+      }
+
+      // Check registrations
+      try {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        if (registrations.length > 0) {
+          const reg = registrations[0];
+          return {
+            supported: true,
+            active: !!(reg.active || reg.waiting || reg.installing),
+            scriptURL: reg.active?.scriptURL || reg.waiting?.scriptURL || reg.installing?.scriptURL || null,
+          };
+        }
+      } catch {
+        // Registration check failed
+      }
+
+      return { supported: true, active: false, scriptURL: null };
+    });
+
+    // If manifest exists but no Service Worker, suggest adding one
+    if (hasManifest && swStatus.supported && !swStatus.active) {
+      issues.push({
+        code: 'no_service_worker',
+        severity: 'P3',
+        category: 'CONTENT',
+        title: 'Web manifest found but no active Service Worker',
+        whyItMatters:
+          'A Service Worker enables offline functionality, push notifications, and background sync. Sites with manifest but no SW are missing key PWA features that improve user experience and engagement.',
+        howToFix:
+          'Create a service-worker.js file with caching strategies (e.g., cache-first for static assets). Register it in your app: navigator.serviceWorker.register(\'/sw.js\'). Use Workbox for easier implementation.',
+        evidence: { url, hasManifest, serviceWorkerStatus: swStatus },
+        impact: 2,
+        effort: 3,
+      });
+    }
+
+    // If no manifest and no SW, but site could benefit from SW (e.g., has assets)
+    if (!hasManifest && swStatus.supported && !swStatus.active) {
+      // This is already covered by 'no_web_manifest' issue, so no additional issue needed
+    }
+
+  } catch {
+    // Service Worker check failed - skip silently
+  }
+
+  return issues;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Schema Detection and Suggestions
 // ─────────────────────────────────────────────────────────────────────────────
