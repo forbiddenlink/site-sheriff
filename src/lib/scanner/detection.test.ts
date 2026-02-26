@@ -911,3 +911,116 @@ describe('checkAIReadiness - citation friendliness', () => {
     expect(citationIssue).toBeUndefined();
   });
 });
+
+describe('checkAIReadiness - speakable schema', () => {
+  it('should flag Article without speakable schema', () => {
+    const result = createCrawlResult({
+      url: 'https://example.com/blog/article',
+      html: `
+        <html><head>
+          <script type="application/ld+json">
+            {"@type": "Article", "headline": "Test Article", "datePublished": "2024-01-01"}
+          </script>
+        </head><body>
+          <article><h1>Test Article</h1><p>Content here.</p></article>
+        </body></html>
+      `,
+    });
+
+    const issues = checkAIReadiness(result);
+    const speakableIssue = issues.find(i => i.code === 'missing_speakable_schema');
+    expect(speakableIssue).toBeDefined();
+    expect(speakableIssue?.severity).toBe('P3');
+  });
+
+  it('should NOT flag Article with speakable schema', () => {
+    const result = createCrawlResult({
+      url: 'https://example.com/blog/article',
+      html: `
+        <html><head>
+          <script type="application/ld+json">
+            {"@type": "Article", "headline": "Test", "speakable": {"cssSelector": [".headline", ".summary"]}}
+          </script>
+        </head><body>
+          <article><h1 class="headline">Test</h1><p class="summary">Content.</p></article>
+        </body></html>
+      `,
+    });
+
+    const issues = checkAIReadiness(result);
+    const speakableIssue = issues.find(i => i.code === 'missing_speakable_schema');
+    expect(speakableIssue).toBeUndefined();
+  });
+
+  it('should NOT flag non-article pages', () => {
+    const result = createCrawlResult({
+      url: 'https://example.com/',
+      html: `
+        <html><head>
+          <script type="application/ld+json">
+            {"@type": "WebSite", "name": "Example Site"}
+          </script>
+        </head><body><h1>Homepage</h1></body></html>
+      `,
+    });
+
+    const issues = checkAIReadiness(result);
+    const speakableIssue = issues.find(i => i.code === 'missing_speakable_schema');
+    expect(speakableIssue).toBeUndefined();
+  });
+});
+
+describe('checkAIReadiness - dateModified freshness', () => {
+  it('should flag Article with datePublished but no dateModified', () => {
+    const result = createCrawlResult({
+      url: 'https://example.com/blog/article',
+      html: `
+        <html><head>
+          <script type="application/ld+json">
+            {"@type": "Article", "headline": "Test", "datePublished": "2024-01-01"}
+          </script>
+        </head><body><article><h1>Test</h1></article></body></html>
+      `,
+    });
+
+    const issues = checkAIReadiness(result);
+    const freshnessIssue = issues.find(i => i.code === 'missing_date_modified');
+    expect(freshnessIssue).toBeDefined();
+    expect(freshnessIssue?.severity).toBe('P3');
+  });
+
+  it('should NOT flag Article with both datePublished and dateModified', () => {
+    const result = createCrawlResult({
+      url: 'https://example.com/blog/article',
+      html: `
+        <html><head>
+          <script type="application/ld+json">
+            {"@type": "Article", "headline": "Test", "datePublished": "2024-01-01", "dateModified": "2024-06-15"}
+          </script>
+        </head><body><article><h1>Test</h1></article></body></html>
+      `,
+    });
+
+    const issues = checkAIReadiness(result);
+    const freshnessIssue = issues.find(i => i.code === 'missing_date_modified');
+    expect(freshnessIssue).toBeUndefined();
+  });
+
+  it('should accept dateModified from meta tag', () => {
+    const result = createCrawlResult({
+      url: 'https://example.com/blog/article',
+      html: `
+        <html><head>
+          <meta property="article:modified_time" content="2024-06-15T10:00:00Z">
+          <script type="application/ld+json">
+            {"@type": "Article", "headline": "Test", "datePublished": "2024-01-01"}
+          </script>
+        </head><body><article><h1>Test</h1></article></body></html>
+      `,
+    });
+
+    const issues = checkAIReadiness(result);
+    const freshnessIssue = issues.find(i => i.code === 'missing_date_modified');
+    expect(freshnessIssue).toBeUndefined();
+  });
+});

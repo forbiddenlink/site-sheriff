@@ -186,6 +186,112 @@ function checkAuthorshipSignals($: cheerio.CheerioAPI, url: string): AIReadiness
 }
 
 /**
+ * Check for Speakable schema markup for voice search optimization.
+ * Speakable identifies sections suitable for text-to-speech (TTS) playback.
+ * See: https://developers.google.com/search/docs/appearance/structured-data/speakable
+ */
+function checkSpeakableSchema($: cheerio.CheerioAPI, url: string): AIReadinessIssue[] {
+  const jsonLdScripts = $('script[type="application/ld+json"]');
+  let hasSpeakable = false;
+  let hasArticle = false;
+
+  jsonLdScripts.each((_i, el) => {
+    const content = $(el).text();
+    try {
+      const data = JSON.parse(content);
+      const items = Array.isArray(data) ? data : [data];
+      for (const item of items) {
+        if (item['@type'] === 'Article' || item['@type'] === 'NewsArticle' || item['@type'] === 'BlogPosting') {
+          hasArticle = true;
+        }
+        if (item.speakable) {
+          hasSpeakable = true;
+        }
+      }
+    } catch {
+      // Invalid JSON
+    }
+  });
+
+  // Only suggest Speakable for article-type pages
+  if (hasArticle && !hasSpeakable) {
+    return [{
+      code: 'missing_speakable_schema',
+      severity: 'P3' as const,
+      category: 'SEO' as const,
+      title: 'Article missing Speakable schema for voice search',
+      whyItMatters:
+        'With 62% of searches now involving voice, Speakable schema helps Google Assistant read your content aloud. Sites with Speakable see up to 127% more voice search referrals.',
+      howToFix:
+        'Add a "speakable" property to your Article schema with cssSelector or xPath pointing to headline and summary sections. Focus on concise, 20-30 second content snippets.',
+      evidence: {
+        url,
+        actual: 'Article schema without speakable property',
+        expected: 'Article schema with speakable: { cssSelector: [...] }',
+      },
+      impact: 2,
+      effort: 1,
+    }];
+  }
+
+  return [];
+}
+
+/**
+ * Check for dateModified in structured data for content freshness signals.
+ * AI systems prefer recently updated content.
+ */
+function checkContentFreshness($: cheerio.CheerioAPI, url: string): AIReadinessIssue[] {
+  const jsonLdScripts = $('script[type="application/ld+json"]');
+  let hasDateModified = false;
+  let hasDatePublished = false;
+  let isArticle = false;
+
+  jsonLdScripts.each((_i, el) => {
+    const content = $(el).text();
+    try {
+      const data = JSON.parse(content);
+      const items = Array.isArray(data) ? data : [data];
+      for (const item of items) {
+        if (item['@type'] === 'Article' || item['@type'] === 'NewsArticle' || item['@type'] === 'BlogPosting') {
+          isArticle = true;
+        }
+        if (item.dateModified) hasDateModified = true;
+        if (item.datePublished) hasDatePublished = true;
+      }
+    } catch {
+      // Invalid JSON
+    }
+  });
+
+  // Check meta tag fallback
+  if ($('meta[property="article:modified_time"]').length > 0) hasDateModified = true;
+
+  // Only flag articles with datePublished but no dateModified
+  if (isArticle && hasDatePublished && !hasDateModified) {
+    return [{
+      code: 'missing_date_modified',
+      severity: 'P3' as const,
+      category: 'CONTENT' as const,
+      title: 'Article missing dateModified for freshness signals',
+      whyItMatters:
+        'AI systems prioritize recently updated content. Without dateModified, search engines can\'t distinguish fresh content from stale pages, potentially hurting rankings.',
+      howToFix:
+        'Add dateModified to your Article JSON-LD schema, or add <meta property="article:modified_time">. Update this date whenever content is meaningfully revised.',
+      evidence: {
+        url,
+        actual: 'datePublished present, dateModified missing',
+        expected: 'Both datePublished and dateModified in schema',
+      },
+      impact: 2,
+      effort: 1,
+    }];
+  }
+
+  return [];
+}
+
+/**
  * Check for citation-friendly content patterns that AI systems prefer.
  * Detects: numbered lists, statistics, definitions, quotable statements.
  */
@@ -296,6 +402,8 @@ function checkContentSummary($: cheerio.CheerioAPI, url: string, metaDescription
  * 4. **missing_publish_date** – article without publication date
  * 5. **weak_content_intro** – no clear summary for AI extraction
  * 6. **low_citation_friendliness** – article lacks lists, stats, or definitions
+ * 7. **missing_speakable_schema** – article missing Speakable for voice search
+ * 8. **missing_date_modified** – article missing dateModified for freshness
  *
  * @param result - The crawl result for a single page.
  * @returns An array of issues found.
@@ -310,6 +418,8 @@ export function checkAIReadiness(result: CrawlResult): AIReadinessIssue[] {
     ...checkAuthorshipSignals($, result.url),
     ...checkContentSummary($, result.url, result.metaDescription),
     ...checkCitationFriendliness($, result.url),
+    ...checkSpeakableSchema($, result.url),
+    ...checkContentFreshness($, result.url),
   ];
 }
 
