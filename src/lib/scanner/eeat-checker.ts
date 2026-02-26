@@ -339,14 +339,14 @@ export function checkInfrastructure(result: CrawlResult): EEATIssue[] {
     });
   }
 
-  // HTTP/2 check
+  // HTTP version checks
   const httpVersion = result.httpVersion;
   if (httpVersion && !httpVersion.includes('2') && !httpVersion.includes('3')) {
     issues.push({
       code: 'no_http2',
       severity: 'P3',
       category: 'CONTENT',
-      title: `Using ${httpVersion || 'HTTP/1.1'} instead of HTTP/2`,
+      title: `Using ${httpVersion || 'HTTP/1.1'} instead of HTTP/2+`,
       whyItMatters:
         'HTTP/2 enables multiplexing, header compression, and server push, significantly improving load performance.',
       howToFix:
@@ -354,6 +354,109 @@ export function checkInfrastructure(result: CrawlResult): EEATIssue[] {
       evidence: { url: result.url, httpVersion: httpVersion || 'HTTP/1.1' },
       impact: 3,
       effort: 2,
+    });
+  } else if (httpVersion && httpVersion.includes('2') && !httpVersion.includes('3') && isHomepage) {
+    // HTTP/3 opportunity for sites on HTTP/2
+    issues.push({
+      code: 'no_http3',
+      severity: 'P3',
+      category: 'CONTENT',
+      title: 'Consider upgrading to HTTP/3',
+      whyItMatters:
+        'HTTP/3 uses QUIC protocol for faster connection establishment (0-RTT), better handling of packet loss, and improved performance on mobile networks.',
+      howToFix:
+        'Enable HTTP/3 on your CDN (Cloudflare, Fastly, AWS CloudFront) or configure your server to support QUIC. Most modern CDNs support HTTP/3 with a simple toggle.',
+      evidence: { url: result.url, httpVersion },
+      impact: 2,
+      effort: 1,
+    });
+  }
+
+  return issues;
+}
+
+/**
+ * Check for PWA (Progressive Web App) features
+ */
+export function checkPWAFeatures(result: CrawlResult): EEATIssue[] {
+  const issues: EEATIssue[] = [];
+  const $ = cheerio.load(result.html);
+  const isHomepage = new URL(result.url).pathname === '/';
+
+  if (!isHomepage) return issues;
+
+  // Check for Web App Manifest
+  const manifestLink = $('link[rel="manifest"]').attr('href');
+  const hasManifest = !!manifestLink;
+
+  // Check for theme-color meta tag (PWA indicator)
+  const hasThemeColor = $('meta[name="theme-color"]').length > 0;
+
+  // Check for apple-touch-icon (iOS PWA support)
+  const hasAppleTouchIcon = $('link[rel="apple-touch-icon"]').length > 0 ||
+                            $('link[rel="apple-touch-icon-precomposed"]').length > 0;
+
+  // Check for viewport meta tag with mobile optimization
+  const viewportContent = $('meta[name="viewport"]').attr('content') || '';
+  const hasMobileViewport = viewportContent.includes('width=device-width');
+
+  // Calculate PWA readiness score
+  const pwaFeatures = {
+    manifest: hasManifest,
+    themeColor: hasThemeColor,
+    appleTouchIcon: hasAppleTouchIcon,
+    mobileViewport: hasMobileViewport,
+  };
+  const pwaScore = Object.values(pwaFeatures).filter(Boolean).length;
+
+  // Service Worker detection would require runtime check - we note if manifest exists
+  // since sites with manifests often have service workers
+
+  if (!hasManifest) {
+    issues.push({
+      code: 'no_web_manifest',
+      severity: 'P3',
+      category: 'CONTENT',
+      title: 'No Web App Manifest found',
+      whyItMatters:
+        'A Web App Manifest enables "Add to Home Screen" functionality, making your site installable as a PWA. This improves engagement and return visits.',
+      howToFix:
+        'Create a manifest.json file with app name, icons, theme colors, and display mode. Add <link rel="manifest" href="/manifest.json"> to your HTML.',
+      evidence: { url: result.url, pwaFeatures },
+      impact: 2,
+      effort: 2,
+    });
+  }
+
+  if (hasManifest && !hasThemeColor) {
+    issues.push({
+      code: 'missing_theme_color',
+      severity: 'P3',
+      category: 'CONTENT',
+      title: 'Web manifest found but missing theme-color meta tag',
+      whyItMatters:
+        'Theme color customizes the browser UI on mobile devices, providing a more branded and app-like experience.',
+      howToFix:
+        'Add <meta name="theme-color" content="#your-brand-color"> to your HTML head.',
+      evidence: { url: result.url, manifestHref: manifestLink },
+      impact: 1,
+      effort: 1,
+    });
+  }
+
+  if (hasManifest && !hasAppleTouchIcon) {
+    issues.push({
+      code: 'missing_apple_touch_icon',
+      severity: 'P3',
+      category: 'CONTENT',
+      title: 'Missing apple-touch-icon for iOS',
+      whyItMatters:
+        'iOS devices use apple-touch-icon for home screen shortcuts. Without it, iOS may use a screenshot instead of your app icon.',
+      howToFix:
+        'Add <link rel="apple-touch-icon" href="/apple-touch-icon.png"> with a 180x180px PNG icon.',
+      evidence: { url: result.url },
+      impact: 1,
+      effort: 1,
     });
   }
 
@@ -473,6 +576,7 @@ export function checkEEAT(result: CrawlResult): EEATIssue[] {
     ...checkOrganizationSchema(result.url, result.html),
     ...checkDOMComplexity(result.url, $),
     ...checkInfrastructure(result),
+    ...checkPWAFeatures(result),
     ...checkSchemaSuggestions(result.url, result.html, $),
   ];
 }

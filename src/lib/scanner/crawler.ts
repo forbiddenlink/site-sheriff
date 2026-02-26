@@ -334,11 +334,22 @@ export class Crawler {
       const loadTimeMs = Date.now() - startTime;
       const statusCode = response?.status() ?? 0;
 
-      // Measure TTFB via Navigation Timing API
-      const ttfbMs = await page.evaluate(() => {
+      // Measure TTFB and HTTP version via Navigation Timing API
+      const navTiming = await page.evaluate(() => {
         const nav = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming;
-        return nav ? Math.round(nav.responseStart - nav.startTime) : null;
+        if (!nav) return null;
+        return {
+          ttfb: Math.round(nav.responseStart - nav.startTime),
+          // nextHopProtocol: "h2" = HTTP/2, "h3" = HTTP/3, "http/1.1" = HTTP/1.1
+          protocol: nav.nextHopProtocol || null,
+        };
       }).catch(() => null);
+      const ttfbMs = navTiming?.ttfb ?? null;
+      const httpVersion = navTiming?.protocol
+        ? navTiming.protocol === 'h2' ? 'HTTP/2'
+          : navTiming.protocol === 'h3' ? 'HTTP/3'
+          : navTiming.protocol.toUpperCase()
+        : null;
 
       // Get HTML content
       const html = await page.content();
@@ -358,6 +369,7 @@ export class Crawler {
       result.contentType = responseHeaders['content-type'] || null;
       result.consoleErrors = consoleErrors.slice(0, 10);
       result.ttfbMs = ttfbMs;
+      result.httpVersion = httpVersion;
 
       // Take screenshot if enabled
       if (this.options.screenshotMode !== 'none') {
