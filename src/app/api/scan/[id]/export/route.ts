@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { supabaseAdmin } from '@/lib/supabase-server';
 
-// Validate CUID format (Prisma's default ID generator)
-const ScanIdSchema = z.string().min(20).max(30).regex(/^[a-z0-9]+$/, 'Invalid scan ID format');
+// Validate UUID or CUID format
+const ScanIdSchema = z.string().uuid().or(z.string().min(20).max(30).regex(/^[a-z0-9]+$/));
 
 interface RouteContext {
   params: Promise<{ id: string }>;

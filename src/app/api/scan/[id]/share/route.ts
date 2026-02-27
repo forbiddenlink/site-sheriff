@@ -3,8 +3,8 @@ import { z } from 'zod';
 import { supabaseAdmin } from '@/lib/supabase-server';
 import { randomBytes } from 'node:crypto';
 
-// Validate CUID format (Prisma's default ID generator)
-const ScanIdSchema = z.string().min(20).max(30).regex(/^[a-z0-9]+$/, 'Invalid scan ID format');
+// Validate UUID or CUID format
+const ScanIdSchema = z.string().uuid().or(z.string().min(20).max(30).regex(/^[a-z0-9]+$/));
 
 interface RouteContext {
   params: Promise<{ id: string }>;
