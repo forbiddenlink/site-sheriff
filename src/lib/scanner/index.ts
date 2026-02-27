@@ -1,5 +1,5 @@
 import { supabaseAdmin } from '../supabase-server';
-import { Crawler, type CrawlResult } from './crawler';
+import { Crawler } from './crawler';
 import { checkLinks, findBrokenLinks, findRedirectChains } from './link-checker';
 import { checkAccessibility, mapImpactToSeverity, getWCAG22Info } from './a11y-checker';
 import { checkSEO, checkDuplicates, checkStructuredData, checkSPARendering, validateOgImages, validateCanonicals, validateHreflangBidirectional, checkAnchorText } from './seo-checker';
@@ -16,8 +16,21 @@ import { analyzeInternalLinking } from './linking-analyzer';
 import { checkEEAT, checkServiceWorker } from './eeat-checker';
 import { checkAIReadiness, checkLlmsTxt, checkAICrawlerAccess } from './ai-readiness-checker';
 import { checkContentSimilarity } from './content-similarity-checker';
-import type { ScanSettings, ScanProgress, ScanSummary, LinkData } from '../types';
+import type { LinkData } from '../types';
 
+// Import from core modules
+import {
+  impactToScore,
+  computeSummary,
+  updateProgress,
+  dedupeIssues,
+  isHtmlPage,
+  normalizeForCompare,
+  ALL_PHASE_NAMES,
+} from './core';
+import type { ScanContext } from './core';
+
+// Re-exports for backward compatibility
 export { Crawler } from './crawler';
 export { checkLinks } from './link-checker';
 export { checkAccessibility } from './a11y-checker';
@@ -27,25 +40,7 @@ export { checkContentQuality } from './content-checker';
 export { checkImageOptimization } from './image-checker';
 export { checkResourceOptimization } from './resource-checker';
 export { analyzeInternalLinking } from './linking-analyzer';
-
-/**
- * Map axe impact level to a numeric impact score (1-5).
- */
-function impactToScore(impact: string | null | undefined): number {
-  switch (impact) {
-    case 'critical': return 5;
-    case 'serious':  return 4;
-    case 'moderate': return 3;
-    default:         return 2;
-  }
-}
-
-export interface ScanContext {
-  scanRunId: string;
-  settings: ScanSettings;
-  /** Maximum wall-clock time for the entire scan in ms. Default 540 000 (9 min). */
-  maxScanTimeMs?: number;
-}
+export type { ScanContext } from './core';
 
 /**
  * Run a complete website scan
@@ -99,17 +94,7 @@ export async function runScan(ctx: ScanContext): Promise<void> {
 
     const crawlResults = await crawler.crawl(normalizedUrl);
 
-    // Helper: determine if a crawl result is an HTML page (not JSON API, redirect, etc.)
-    const isHtmlPage = (r: CrawlResult): boolean => {
-      if (r.error) return false;
-      const ct = r.contentType?.toLowerCase() ?? '';
-      // Must have text/html content type (or be empty, which typically means HTML)
-      const isHtmlContentType = !ct || ct.includes('text/html') || ct.includes('application/xhtml+xml');
-      if (!isHtmlContentType) return false;
-      // Skip pages with very low word count that look like JSON/API responses
-      return !(r.wordCount === 0 && r.html.trim().startsWith('{'));
-    };
-
+    // Filter to HTML pages only (isHtmlPage imported from core)
     const htmlPages = crawlResults.filter(isHtmlPage);
 
     // Save page results (batch insert)
@@ -405,16 +390,7 @@ export async function runScan(ctx: ScanContext): Promise<void> {
     // ─────────────────────────────────────────────────────────────────────────
     if (!isNearDeadline()) try {
       if (sitemapUrls.length > 0) {
-        // Helper to normalize URLs for comparison
-        const normalizeForCompare = (u: string): string => {
-          try {
-            const parsed = new URL(u);
-            return (parsed.origin + parsed.pathname).replace(/\/+$/, '').toLowerCase();
-          } catch {
-            return u.replace(/\/+$/, '').toLowerCase();
-          }
-        };
-
+        // normalizeForCompare imported from core
         const sitemapNormalized = new Set(sitemapUrls.map(normalizeForCompare));
         const crawledMap = new Map<string, { url: string; statusCode: number; error?: string }>();
         for (const r of crawlResults) {
@@ -1119,13 +1095,8 @@ export async function runScan(ctx: ScanContext): Promise<void> {
     // ─────────────────────────────────────────────────────────────────────────
     // Timeout partial results: add info issue if phases were skipped
     // ─────────────────────────────────────────────────────────────────────────
-    const allPhaseNames = [
-      'crawl', 'seo', 'content', 'eeat', 'ai-readiness', 'images', 'resources', 'security',
-      'robots-sitemap', 'tech-duplicates', 'internal-linking', 'compression',
-      'sitemap-xref', 'ttfb', 'console-errors', 'broken-links',
-      'error-page-links', 'accessibility', 'performance',
-    ];
-    const skippedPhases = allPhaseNames.filter((p) => !completedPhases.includes(p));
+    // ALL_PHASE_NAMES imported from core
+    const skippedPhases = ALL_PHASE_NAMES.filter((p) => !completedPhases.includes(p));
     if (skippedPhases.length > 0) {
       allIssues.push({
         code: 'scan_timeout_partial',
@@ -1226,158 +1197,4 @@ export async function runScan(ctx: ScanContext): Promise<void> {
   }
 }
 
-async function updateProgress(scanRunId: string, progress: ScanProgress) {
-  await supabaseAdmin
-    .from('ScanRun')
-    .update({ progress, updatedAt: new Date().toISOString() })
-    .eq('id', scanRunId);
-}
-
-function dedupeIssues<T extends { code: string; evidence: { url?: string } }>(issues: T[]): T[] {
-  const seen = new Set<string>();
-  return issues.filter((issue) => {
-    const key = `${issue.code}:${(issue.evidence as { url?: string }).url || ''}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-}
-
-// Severity-weighted penalty points per unique issue type
-const SEVERITY_PENALTY: Record<string, number> = { P0: 20, P1: 8, P2: 3, P3: 1 };
-
-/**
- * Compute the score for a single category.
- *
- * Penalties are applied per UNIQUE issue code (not per page instance) so that
- * the same template-level problem found on many pages doesn't crush the score.
- * Additional page occurrences add a small logarithmic penalty (capped at +3).
- *
- * An exponential diminishing-returns curve is then applied to the raw total so
- * that many low-severity issues cannot sink the score the way a few critical
- * ones can. This produces realistic ranges:
- *   • rawPenalty ≈ 10  →  score ~88   (minor issues)
- *   • rawPenalty ≈ 30  →  score ~69   (moderate)
- *   • rawPenalty ≈ 60  →  score ~53   (significant)
- *   • rawPenalty ≈ 100 →  score ~71→29 (severe)
- */
-function computeCategoryScore(
-  issues: Array<{ severity: string; category: string; code: string }>,
-  category: string,
-): number {
-  const catIssues = issues.filter((i) => i.category === category);
-  if (catIssues.length === 0) return 100;
-
-  // Group by issue code to avoid penalising the same problem on every page
-  const grouped = new Map<string, { severity: string; count: number }>();
-  for (const issue of catIssues) {
-    const existing = grouped.get(issue.code);
-    if (existing) {
-      existing.count++;
-    } else {
-      grouped.set(issue.code, { severity: issue.severity, count: 1 });
-    }
-  }
-
-  let rawPenalty = 0;
-  for (const { severity, count } of grouped.values()) {
-    const base = SEVERITY_PENALTY[severity] ?? 3;
-    // Additional instances add logarithmic penalty, capped at +3
-    const extra = count > 1 ? Math.min(Math.ceil(Math.log2(count)), 3) : 0;
-    rawPenalty += base + extra;
-  }
-
-  // Exponential diminishing returns so many small issues can't crater the score
-  // Maps rawPenalty → effective penalty on a 0-100 curve
-  const effectivePenalty = Math.round(100 * (1 - Math.exp(-rawPenalty / 80)));
-
-  return Math.max(0, 100 - effectivePenalty);
-}
-
-function computeSummary(
-  issues: Array<{ severity: string; category: string; code: string; title: string }>,
-  crawlResults: CrawlResult[],
-  scanDurationMs: number,
-  technologies: Array<{ name: string; category: string; confidence: string; evidence: string }> = []
-): ScanSummary {
-  // Count issues by severity
-  const issueCount = {
-    P0: issues.filter((i) => i.severity === 'P0').length,
-    P1: issues.filter((i) => i.severity === 'P1').length,
-    P2: issues.filter((i) => i.severity === 'P2').length,
-    P3: issues.filter((i) => i.severity === 'P3').length,
-  };
-
-  // Compute category scores using severity-weighted penalties
-  const categoryScores = {
-    seo: computeCategoryScore(issues, 'SEO'),
-    accessibility: computeCategoryScore(issues, 'ACCESSIBILITY'),
-    performance: computeCategoryScore(issues, 'PERFORMANCE'),
-    links: computeCategoryScore(issues, 'LINKS'),
-    content: computeCategoryScore(issues, 'CONTENT'),
-    security: computeCategoryScore(issues, 'SECURITY'),
-  };
-
-  // Overall score (weighted average — 6 categories)
-  const overallScore = Math.round(
-    categoryScores.seo * 0.25 +
-    categoryScores.accessibility * 0.2 +
-    categoryScores.performance * 0.15 +
-    categoryScores.links * 0.1 +
-    categoryScores.content * 0.1 +
-    categoryScores.security * 0.2
-  );
-
-  // Top issues (group by code)
-  const issueCounts = new Map<string, { code: string; title: string; severity: string; category: string; count: number }>();
-  for (const issue of issues) {
-    const existing = issueCounts.get(issue.code);
-    if (existing) {
-      existing.count++;
-    } else {
-      issueCounts.set(issue.code, {
-        code: issue.code,
-        title: issue.title,
-        severity: issue.severity,
-        category: issue.category,
-        count: 1,
-      });
-    }
-  }
-
-  const topIssues = Array.from(issueCounts.values())
-    .sort((a, b) => {
-      // Sort by severity first, then by count
-      const severityOrder = { P0: 0, P1: 1, P2: 2, P3: 3 };
-      const severityDiff = (severityOrder[a.severity as keyof typeof severityOrder] || 4) -
-        (severityOrder[b.severity as keyof typeof severityOrder] || 4);
-      if (severityDiff !== 0) return severityDiff;
-      return b.count - a.count;
-    })
-    .slice(0, 10);
-
-  // Extract social preview data from homepage
-  const homepage = crawlResults[0];
-  const socialPreview = homepage ? {
-    ogTitle: homepage.ogTags['og:title'] ?? null,
-    ogDescription: homepage.ogTags['og:description'] ?? null,
-    ogImage: homepage.ogTags['og:image'] ?? null,
-    ogSiteName: homepage.ogTags['og:site_name'] ?? null,
-    twitterCard: homepage.ogTags['twitter:card'] ?? null,
-    twitterTitle: homepage.ogTags['twitter:title'] ?? null,
-    twitterDescription: homepage.ogTags['twitter:description'] ?? null,
-    twitterImage: homepage.ogTags['twitter:image'] ?? null,
-    favicon: null as string | null,
-  } : undefined;
-
-  return {
-    overallScore,
-    categoryScores,
-    issueCount,
-    topIssues,
-    pagesCrawled: crawlResults.length,
-    scanDurationMs,
-    technologies,
-    socialPreview,
-  };
-}
+// Scoring and utility functions are now imported from ./core
