@@ -768,6 +768,7 @@ export function ScanResultsView({
                     <div className="rounded-2xl border border-white/8 overflow-hidden bg-white/2">
                       {data.summary.socialPreview.ogImage && (
                         <div className="h-40 bg-slate-800 relative overflow-hidden">
+                          {/* eslint-disable-next-line @next/next/no-img-element -- External image from scanned website, domain unknown */}
                           <img
                             src={data.summary.socialPreview.twitterImage || data.summary.socialPreview.ogImage}
                             alt="Social preview"
@@ -799,6 +800,7 @@ export function ScanResultsView({
                     <div className="rounded-2xl border border-white/8 overflow-hidden bg-white/2">
                       {data.summary.socialPreview.ogImage && (
                         <div className="h-48 bg-slate-800 relative overflow-hidden">
+                          {/* eslint-disable-next-line @next/next/no-img-element -- External image from scanned website, domain unknown */}
                           <img
                             src={data.summary.socialPreview.ogImage}
                             alt="OG preview"
@@ -991,6 +993,8 @@ export function ScanResultsView({
                 {/* Group by page toggle */}
                 <button
                   onClick={() => setGroupByPage(!groupByPage)}
+                  aria-pressed={groupByPage}
+                  aria-label={groupByPage ? 'Switch to flat list view' : 'Switch to grouped by page view'}
                   className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
                     groupByPage ? 'bg-purple-500/20 text-purple-300 ring-1 ring-purple-500/30' : 'bg-white/5 text-gray-400 hover:bg-white/10'
                   }`}
@@ -1248,6 +1252,7 @@ export function ScanResultsView({
                           className="w-full cursor-pointer"
                           onClick={() => setExpandedScreenshot(pg.screenshotPath!)}
                         >
+                          {/* eslint-disable-next-line @next/next/no-img-element -- Screenshot from external scan, dimensions unknown */}
                           <img
                             src={pg.screenshotPath}
                             alt={`Screenshot of ${pg.title || pg.url}`}
@@ -1291,6 +1296,7 @@ export function ScanResultsView({
                 className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-8"
               >
                 <div className="relative max-w-4xl max-h-[90vh] overflow-auto rounded-2xl border border-white/10">
+                  {/* eslint-disable-next-line @next/next/no-img-element -- Screenshot from external scan, dimensions unknown */}
                   <img
                     src={expandedScreenshot}
                     alt="Full screenshot"
@@ -1298,10 +1304,11 @@ export function ScanResultsView({
                   />
                   <button
                     type="button"
+                    aria-label="Close screenshot preview"
                     className="absolute top-4 right-4 w-8 h-8 rounded-full bg-black/60 border border-white/20 flex items-center justify-center text-white hover:bg-black/80 transition-colors"
                     onClick={() => setExpandedScreenshot(null)}
                   >
-                    ✕
+                    <span aria-hidden="true">✕</span>
                   </button>
                 </div>
               </div>

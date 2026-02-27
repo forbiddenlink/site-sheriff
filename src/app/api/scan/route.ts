@@ -112,14 +112,10 @@ export async function POST(request: NextRequest) {
     });
   } catch (error: unknown) {
     console.error('Error creating scan:', error);
-    let detail = 'Unknown error';
-    if (error instanceof Error) {
-      detail = error.message;
-    } else if (typeof error === 'object' && error !== null && 'message' in error) {
-      detail = String((error as { message: string }).message);
-    } else if (typeof error === 'string') {
-      detail = error;
-    }
+    // Only expose error details in development to prevent information leakage
+    const detail = process.env.NODE_ENV === 'development'
+      ? (error instanceof Error ? error.message : String(error))
+      : 'An error occurred while processing your request';
     return NextResponse.json(
       { error: 'Failed to create scan', detail },
       { status: 500 }
@@ -131,16 +127,56 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const limit = Math.min(Number.parseInt(searchParams.get('limit') ?? '10'), 50);
+    const cursor = searchParams.get('cursor'); // Format: "timestamp_id"
 
-    const { data: scans, error: dbError } = await supabaseAdmin
+    let query = supabaseAdmin
       .from('ScanRun')
       .select('id, status, inputUrl, normalizedUrl, progress, summary, createdAt, error')
       .order('createdAt', { ascending: false })
-      .limit(limit);
+      .order('id', { ascending: false })
+      .limit(limit + 1); // Fetch one extra to check if there's a next page
+
+    // Apply cursor for pagination
+    if (cursor) {
+      const [timestamp, cursorId] = cursor.split('_');
+      if (timestamp && cursorId) {
+        // Use composite cursor: createdAt < cursor OR (createdAt = cursor AND id < cursorId)
+        query = query.or(`createdAt.lt.${timestamp},and(createdAt.eq.${timestamp},id.lt.${cursorId})`);
+      }
+    }
+
+    const { data: scans, error: dbError } = await query;
 
     if (dbError) throw dbError;
 
-    return NextResponse.json({ scans });
+    // Determine if there's a next page
+    const hasNextPage = scans && scans.length > limit;
+    const results = scans?.slice(0, limit) ?? [];
+
+    // Build next cursor from last item
+    const lastItem = results[results.length - 1];
+    const nextCursor = hasNextPage && lastItem
+      ? `${lastItem.createdAt}_${lastItem.id}`
+      : null;
+
+    // Transform to reduce payload size - only include score from summary
+    const transformedScans = results.map((scan) => ({
+      id: scan.id,
+      status: scan.status,
+      inputUrl: scan.inputUrl,
+      normalizedUrl: scan.normalizedUrl,
+      progress: scan.progress,
+      overallScore: scan.summary?.overallScore ?? null,
+      issueCount: scan.summary?.issueCount ?? null,
+      createdAt: scan.createdAt,
+      error: scan.error,
+    }));
+
+    return NextResponse.json({
+      scans: transformedScans,
+      nextCursor,
+      hasNextPage,
+    });
   } catch (error) {
     console.error('Error listing scans:', error);
     return NextResponse.json(
