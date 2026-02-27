@@ -27,6 +27,7 @@ export const metadata: Metadata = {
     shortcut: "/icon.png",
     apple: "/icon.png",
   },
+  manifest: "/manifest.webmanifest",
   openGraph: {
     title: "Site Sheriff — Website QA & Audit Reports",
     description:

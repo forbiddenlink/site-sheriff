@@ -6,9 +6,34 @@ export const metadata: Metadata = {
   description: 'Contact the Site Sheriff team for support, bug reports, feature requests, or general inquiries. We respond to all GitHub issues within 48 hours.',
 };
 
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://site-sheriff.vercel.app';
+
+const contactSchema = {
+  '@context': 'https://schema.org',
+  '@type': 'ContactPage',
+  name: 'Contact Site Sheriff',
+  description: 'Contact the Site Sheriff team for support, bug reports, and feature requests.',
+  mainEntity: {
+    '@type': 'Organization',
+    name: 'Site Sheriff',
+    url: siteUrl,
+    contactPoint: {
+      '@type': 'ContactPoint',
+      contactType: 'customer support',
+      url: 'https://github.com/forbiddenlink/site-sheriff/issues',
+      availableLanguage: 'English',
+    },
+    sameAs: ['https://github.com/forbiddenlink/site-sheriff'],
+  },
+};
+
 export default function ContactPage() {
   return (
     <main className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-slate-100 px-4 py-16">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(contactSchema) }}
+      />
       <div className="max-w-2xl mx-auto">
         <Link
           href="/"

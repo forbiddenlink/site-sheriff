@@ -6,9 +6,52 @@ export const metadata: Metadata = {
   description: 'Site Sheriff: free website audits with 160+ checks for SEO, security, accessibility, and performance. Built for freelancers and agencies.',
 };
 
+const faqSchema = {
+  '@context': 'https://schema.org',
+  '@type': 'FAQPage',
+  mainEntity: [
+    {
+      '@type': 'Question',
+      name: 'What is Site Sheriff?',
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: 'Site Sheriff is a free, comprehensive website auditing tool designed for freelancers, agencies, and developers who need quick, actionable insights about their websites. Just drop a URL and get an instant QA report with 160+ checks across 10 categories.',
+      },
+    },
+    {
+      '@type': 'Question',
+      name: 'What does Site Sheriff check?',
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: 'Site Sheriff checks SEO (meta tags, headings, structured data), Security (HTTP headers, CSP, HSTS), Accessibility (WCAG 2.1 AA compliance), Performance (Core Web Vitals), Links (broken links, redirects), Content (readability, thin content), Images (alt text, formats), Resources (render-blocking), Robots & Sitemap, and AI Readiness.',
+      },
+    },
+    {
+      '@type': 'Question',
+      name: 'Why was Site Sheriff built?',
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: 'We believe every website deserves a thorough health check, regardless of budget. Existing tools are either expensive or limited. Site Sheriff provides agency-grade audits completely free, with no signup required.',
+      },
+    },
+    {
+      '@type': 'Question',
+      name: 'Is Site Sheriff open source?',
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: 'Yes, Site Sheriff is open source and available on GitHub. Contributions, bug reports, and feature requests are welcome.',
+      },
+    },
+  ],
+};
+
 export default function AboutPage() {
   return (
     <main className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-slate-100 px-4 py-16">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(faqSchema) }}
+      />
       <div className="max-w-2xl mx-auto">
         <Link
           href="/"

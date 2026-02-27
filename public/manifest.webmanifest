@@ -1,0 +1,17 @@
+{
+  "name": "Site Sheriff",
+  "short_name": "Site Sheriff",
+  "description": "Website QA & Audit Reports - 160+ checks across SEO, security, accessibility, and more",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#030712",
+  "theme_color": "#10b981",
+  "icons": [
+    {
+      "src": "/icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
