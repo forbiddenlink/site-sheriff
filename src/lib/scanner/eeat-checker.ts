@@ -422,7 +422,7 @@ export function checkPWAFeatures(result: CrawlResult): EEATIssue[] {
         'A Web App Manifest enables "Add to Home Screen" functionality, making your site installable as a PWA. This improves engagement and return visits.',
       howToFix:
         'Create a manifest.json file with app name, icons, theme colors, and display mode. Add <link rel="manifest" href="/manifest.json"> to your HTML.',
-      evidence: { url: result.url, pwaFeatures },
+      evidence: { url: result.url, pwaFeatures, pwaScore },
       impact: 2,
       effort: 2,
     });

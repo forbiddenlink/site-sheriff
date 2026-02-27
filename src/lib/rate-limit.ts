@@ -12,8 +12,8 @@ import { createClient } from '@supabase/supabase-js';
  *
  * This implementation queries Supabase for recent requests from the same
  * key (IP address) within the sliding window. It falls back to an
- * in-memory limiter when env vars are missing (local dev) and fails open
- * on database errors so legitimate requests are never blocked by infra issues.
+ * in-memory limiter when env vars are missing (local dev) or on database
+ * errors (provides degraded protection vs. no protection).
  */
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -75,16 +75,7 @@ export async function rateLimit(
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
     const windowStart = new Date(Date.now() - windowMs).toISOString();
 
-    // Insert a row for this request
-    const { error: insertError } = await supabase
-      .from('rate_limits')
-      .insert({ key });
-    if (insertError) {
-      console.error('Rate limit insert failed:', insertError);
-      return memRateLimit(key, maxRequests, windowMs);
-    }
-
-    // Count requests in the window
+    // Count requests in the window FIRST (before inserting)
     const { count, error: countError } = await supabase
       .from('rate_limits')
       .select('*', { count: 'exact', head: true })
@@ -93,19 +84,40 @@ export async function rateLimit(
 
     if (countError) {
       console.error('Rate limit count failed:', countError);
-      // Fail open — don't block the request
-      return { allowed: true, remaining: maxRequests, resetMs: windowMs };
+      // Fall back to in-memory limiter (provides degraded protection vs none)
+      return memRateLimit(key, maxRequests, windowMs);
     }
 
     const used = count ?? 0;
+
+    // Check if already over limit BEFORE inserting
+    if (used >= maxRequests) {
+      return {
+        allowed: false,
+        remaining: 0,
+        resetMs: windowMs,
+      };
+    }
+
+    // Only insert if under the limit
+    const { error: insertError } = await supabase
+      .from('rate_limits')
+      .insert({ key });
+
+    if (insertError) {
+      console.error('Rate limit insert failed:', insertError);
+      // Fall back to in-memory limiter for this request
+      return memRateLimit(key, maxRequests, windowMs);
+    }
+
     return {
-      allowed: used <= maxRequests,
-      remaining: Math.max(0, maxRequests - used),
+      allowed: true,
+      remaining: Math.max(0, maxRequests - used - 1),
       resetMs: windowMs,
     };
   } catch (err) {
     console.error('Rate limit error:', err);
-    // Fail open on any unexpected error
-    return { allowed: true, remaining: maxRequests, resetMs: windowMs };
+    // Fall back to in-memory limiter (provides degraded protection vs none)
+    return memRateLimit(key, maxRequests, windowMs);
   }
 }

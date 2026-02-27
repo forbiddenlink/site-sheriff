@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
 import { supabaseAdmin } from '@/lib/supabase-server';
+
+// Validate CUID format (Prisma's default ID generator)
+const ScanIdSchema = z.string().min(20).max(30).regex(/^[a-z0-9]+$/, 'Invalid scan ID format');
 
 interface RouteContext {
   params: Promise<{ id: string }>;
@@ -9,11 +13,18 @@ export async function GET(request: NextRequest, context: RouteContext) {
   try {
     const { id } = await context.params;
 
+    // Validate ID format
+    const parsed = ScanIdSchema.safeParse(id);
+    if (!parsed.success) {
+      return NextResponse.json({ error: 'Invalid scan ID format' }, { status: 400 });
+    }
+    const validId = parsed.data;
+
     // Get scan run
     const { data: scanRun, error: scanError } = await supabaseAdmin
       .from('ScanRun')
       .select('*')
-      .eq('id', id)
+      .eq('id', validId)
       .single();
 
     if (scanError) {
@@ -31,7 +42,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
         .select('id, summary, createdAt')
         .eq('normalizedUrl', scanRun.normalizedUrl)
         .eq('status', 'SUCCEEDED')
-        .neq('id', id)
+        .neq('id', validId)
         .order('createdAt', { ascending: false })
         .limit(1);
 
@@ -48,7 +59,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
     const { data: issues } = await supabaseAdmin
       .from('Issue')
       .select('*')
-      .eq('scanRunId', id)
+      .eq('scanRunId', validId)
       .order('severity', { ascending: true })
       .order('createdAt', { ascending: true });
 
@@ -56,7 +67,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
     const { data: pages } = await supabaseAdmin
       .from('PageResult')
       .select('id, url, statusCode, loadTimeMs, title, metaDescription, h1, screenshotPath, links')
-      .eq('scanRunId', id);
+      .eq('scanRunId', validId);
 
     return NextResponse.json({
       id: scanRun.id,

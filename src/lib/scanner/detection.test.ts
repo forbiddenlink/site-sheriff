@@ -1067,7 +1067,7 @@ describe('WCAG 2.2 Helper Functions', () => {
   });
 
   it('should have all WCAG 2.2 rules defined with required fields', () => {
-    for (const [ruleId, info] of Object.entries(WCAG_22_RULES)) {
+    for (const info of Object.values(WCAG_22_RULES)) {
       expect(info.criterion).toBeDefined();
       expect(info.level).toMatch(/^(A|AA|AAA)$/);
       expect(info.description).toBeDefined();

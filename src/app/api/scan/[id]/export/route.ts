@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
 import { supabaseAdmin } from '@/lib/supabase-server';
+
+// Validate CUID format (Prisma's default ID generator)
+const ScanIdSchema = z.string().min(20).max(30).regex(/^[a-z0-9]+$/, 'Invalid scan ID format');
 
 interface RouteContext {
   params: Promise<{ id: string }>;
@@ -17,6 +21,14 @@ function escapeCsvField(value: string | number | null | undefined): string {
 export async function GET(request: NextRequest, context: RouteContext) {
   try {
     const { id } = await context.params;
+
+    // Validate ID format
+    const parsed = ScanIdSchema.safeParse(id);
+    if (!parsed.success) {
+      return NextResponse.json({ error: 'Invalid scan ID format' }, { status: 400 });
+    }
+    const validId = parsed.data;
+
     const { searchParams } = new URL(request.url);
     const format = searchParams.get('format') || 'json';
 
@@ -31,7 +43,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
     const { error: scanError } = await supabaseAdmin
       .from('ScanRun')
       .select('id, inputUrl')
-      .eq('id', id)
+      .eq('id', validId)
       .single();
 
     if (scanError) {
@@ -45,7 +57,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
     const { data: issues } = await supabaseAdmin
       .from('Issue')
       .select('code, severity, category, title, whyItMatters, howToFix, impact, effort')
-      .eq('scanRunId', id)
+      .eq('scanRunId', validId)
       .order('severity', { ascending: true })
       .order('createdAt', { ascending: true });
 
@@ -57,7 +69,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
         status: 200,
         headers: {
           'Content-Type': 'application/json',
-          'Content-Disposition': `attachment; filename="site-sheriff-${id}.json"`,
+          'Content-Disposition': `attachment; filename="site-sheriff-${validId}.json"`,
         },
       });
     }
@@ -74,7 +86,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
       status: 200,
       headers: {
         'Content-Type': 'text/csv; charset=utf-8',
-        'Content-Disposition': `attachment; filename="site-sheriff-${id}.csv"`,
+        'Content-Disposition': `attachment; filename="site-sheriff-${validId}.csv"`,
       },
     });
   } catch (error) {

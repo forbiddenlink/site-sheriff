@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
 import { supabaseAdmin } from '@/lib/supabase-server';
 import { randomBytes } from 'node:crypto';
+
+// Validate CUID format (Prisma's default ID generator)
+const ScanIdSchema = z.string().min(20).max(30).regex(/^[a-z0-9]+$/, 'Invalid scan ID format');
 
 interface RouteContext {
   params: Promise<{ id: string }>;
@@ -10,11 +14,18 @@ export async function POST(request: NextRequest, context: RouteContext) {
   try {
     const { id } = await context.params;
 
+    // Validate ID format
+    const parsed = ScanIdSchema.safeParse(id);
+    if (!parsed.success) {
+      return NextResponse.json({ error: 'Invalid scan ID format' }, { status: 400 });
+    }
+    const validId = parsed.data;
+
     // Check if scan exists
     const { data: scanRun, error: scanError } = await supabaseAdmin
       .from('ScanRun')
       .select('id, shareToken')
-      .eq('id', id)
+      .eq('id', validId)
       .single();
 
     if (scanError) {
@@ -35,7 +46,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     const { error: updateError } = await supabaseAdmin
       .from('ScanRun')
       .update({ shareToken })
-      .eq('id', id);
+      .eq('id', validId);
 
     if (updateError) {
       throw updateError;
