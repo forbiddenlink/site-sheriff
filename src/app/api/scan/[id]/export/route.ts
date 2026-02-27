@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { supabaseAdmin } from '@/lib/supabase-server';
+import { isNotFoundError } from '@/lib/supabase-errors';
+import { logger } from '@/lib/logger';
 
 // Validate UUID or CUID format
 const ScanIdSchema = z.string().uuid().or(z.string().min(20).max(30).regex(/^[a-z0-9]+$/));
@@ -11,8 +13,15 @@ interface RouteContext {
 
 function escapeCsvField(value: string | number | null | undefined): string {
   if (value === null || value === undefined) return '';
-  const str = String(value);
-  if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r')) {
+  let str = String(value);
+
+  // Prevent formula injection: prefix cells starting with =, +, -, @, tab, or CR
+  // with a single quote so spreadsheet apps treat them as text
+  if (/^[=+\-@\t\r]/.test(str)) {
+    str = `'${str}`;
+  }
+
+  if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r') || str.includes("'")) {
     return `"${str.replaceAll('"', '""')}"`;
   }
   return str;
@@ -47,7 +56,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
       .single();
 
     if (scanError) {
-      if (scanError.code === 'PGRST116') {
+      if (isNotFoundError(scanError)) {
         return NextResponse.json({ error: 'Scan not found' }, { status: 404 });
       }
       throw scanError;
@@ -90,7 +99,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
       },
     });
   } catch (error) {
-    console.error('Error exporting scan:', error);
+    logger.error('Error exporting scan', { error: error instanceof Error ? error.message : String(error) });
     return NextResponse.json(
       { error: 'Failed to export scan data' },
       { status: 500 }

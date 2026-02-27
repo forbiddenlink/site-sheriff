@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-server';
+import { logger } from '@/lib/logger';
 
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
@@ -48,7 +49,7 @@ export async function GET(request: NextRequest) {
       scanB: resultB.data,
     });
   } catch (error) {
-    console.error('Error comparing scans:', error);
+    logger.error('Error comparing scans', { error: error instanceof Error ? error.message : String(error) });
     return NextResponse.json(
       { error: 'Failed to compare scans' },
       { status: 500 }

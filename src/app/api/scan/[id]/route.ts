@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { supabaseAdmin } from '@/lib/supabase-server';
+import { isNotFoundError } from '@/lib/supabase-errors';
+import { logger } from '@/lib/logger';
 
 // Validate UUID or CUID format
 const ScanIdSchema = z.string().uuid().or(z.string().min(20).max(30).regex(/^[a-z0-9]+$/));
@@ -28,7 +30,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
       .single();
 
     if (scanError) {
-      if (scanError.code === 'PGRST116') {
+      if (isNotFoundError(scanError)) {
         return NextResponse.json({ error: 'Scan not found' }, { status: 404 });
       }
       throw scanError;
@@ -85,7 +87,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
       pages: pages ?? [],
     });
   } catch (error) {
-    console.error('Error fetching scan:', error);
+    logger.error('Error fetching scan', { error: error instanceof Error ? error.message : String(error) });
     return NextResponse.json(
       { error: 'Failed to fetch scan' },
       { status: 500 }

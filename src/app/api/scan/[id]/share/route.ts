@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { supabaseAdmin } from '@/lib/supabase-server';
+import { isNotFoundError } from '@/lib/supabase-errors';
+import { logger } from '@/lib/logger';
 import { randomBytes } from 'node:crypto';
 
 // Validate UUID or CUID format
@@ -29,7 +31,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       .single();
 
     if (scanError) {
-      if (scanError.code === 'PGRST116') {
+      if (isNotFoundError(scanError)) {
         return NextResponse.json({ error: 'Scan not found' }, { status: 404 });
       }
       throw scanError;
@@ -54,7 +56,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
     return NextResponse.json({ shareToken });
   } catch (error) {
-    console.error('Error creating share link:', error);
+    logger.error('Error creating share link', { error: error instanceof Error ? error.message : String(error) });
     return NextResponse.json(
       { error: 'Failed to create share link' },
       { status: 500 }

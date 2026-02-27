@@ -5,6 +5,7 @@ import { CreateScanRequestSchema, ScanSettingsSchema } from '@/lib/types';
 import { normalizeUrl, isSafeUrl } from '@/lib/url-utils';
 import { runScan } from '@/lib/scanner';
 import { rateLimit } from '@/lib/rate-limit';
+import { logger } from '@/lib/logger';
 
 // Allow up to 600 seconds (10 min) for the scan background work
 export const maxDuration = 600;
@@ -96,8 +97,25 @@ export async function POST(request: NextRequest) {
     const scanPromise = runScan({
       scanRunId: scanRun.id,
       settings: finalSettings,
-    }).catch((err) => {
-      console.error('Background scan failed:', err);
+    }).catch(async (err) => {
+      // Persist failure status so the scan doesn't stay RUNNING forever
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      logger.error('Background scan failed', { scanId: scanRun.id, error: errorMessage });
+      try {
+        await supabaseAdmin
+          .from('ScanRun')
+          .update({
+            status: 'FAILED',
+            error: errorMessage.slice(0, 500), // Truncate to avoid DB issues
+            updatedAt: new Date().toISOString(),
+          })
+          .eq('id', scanRun.id);
+      } catch (dbErr) {
+        logger.error('Failed to update scan status to FAILED', {
+          scanId: scanRun.id,
+          error: dbErr instanceof Error ? dbErr.message : String(dbErr),
+        });
+      }
     });
 
     waitUntil(scanPromise);
@@ -111,10 +129,11 @@ export async function POST(request: NextRequest) {
       createdAt: scanRun.createdAt,
     });
   } catch (error: unknown) {
-    console.error('Error creating scan:', error);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    logger.error('Error creating scan', { error: errorMessage });
     // Only expose error details in development to prevent information leakage
     const detail = process.env.NODE_ENV === 'development'
-      ? (error instanceof Error ? error.message : String(error))
+      ? errorMessage
       : 'An error occurred while processing your request';
     return NextResponse.json(
       { error: 'Failed to create scan', detail },
@@ -178,7 +197,7 @@ export async function GET(request: NextRequest) {
       hasNextPage,
     });
   } catch (error) {
-    console.error('Error listing scans:', error);
+    logger.error('Error listing scans', { error: error instanceof Error ? error.message : String(error) });
     return NextResponse.json(
       { error: 'Failed to list scans' },
       { status: 500 }

@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { logger } from './logger';
 
 /**
  * Database-backed rate limiter using a dedicated rate_limits table in Supabase.
@@ -11,9 +12,25 @@ import { createClient } from '@supabase/supabase-js';
  * ineffective as a rate limiter in production.
  *
  * This implementation queries Supabase for recent requests from the same
- * key (IP address) within the sliding window. It falls back to an
- * in-memory limiter when env vars are missing (local dev) or on database
- * errors (provides degraded protection vs. no protection).
+ * key (IP address) within the sliding window.
+ *
+ * Fallback Behavior (Fail-Open)
+ * ─────────────────────────────
+ * When Supabase is unavailable or env vars are missing, this falls back to
+ * an in-memory limiter which provides degraded protection (only works within
+ * a single container instance). This is a FAIL-OPEN design choice:
+ *
+ * - PRO: Availability - users can still use the service during DB outages
+ * - CON: Security - rate limits may not be enforced across all instances
+ *
+ * For stricter security, consider changing to FAIL-CLOSED (reject all requests
+ * when rate limit DB is unavailable) by returning { allowed: false } on errors.
+ *
+ * Monitoring Recommendation
+ * ─────────────────────────
+ * The console.error calls below should be monitored in production. Consider
+ * sending these to an alerting system (e.g., Sentry, Vercel Analytics) to
+ * detect when the rate limit database is failing.
  */
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -83,7 +100,10 @@ export async function rateLimit(
       .gte('created_at', windowStart);
 
     if (countError) {
-      console.error('Rate limit count failed:', countError);
+      logger.warn('Rate limit count failed, using in-memory fallback', {
+        error: countError.message,
+        code: countError.code,
+      });
       // Fall back to in-memory limiter (provides degraded protection vs none)
       return memRateLimit(key, maxRequests, windowMs);
     }
@@ -105,7 +125,10 @@ export async function rateLimit(
       .insert({ key });
 
     if (insertError) {
-      console.error('Rate limit insert failed:', insertError);
+      logger.warn('Rate limit insert failed, using in-memory fallback', {
+        error: insertError.message,
+        code: insertError.code,
+      });
       // Fall back to in-memory limiter for this request
       return memRateLimit(key, maxRequests, windowMs);
     }
@@ -116,7 +139,7 @@ export async function rateLimit(
       resetMs: windowMs,
     };
   } catch (err) {
-    console.error('Rate limit error:', err);
+    logger.error('Rate limit error', { error: err instanceof Error ? err.message : String(err) });
     // Fall back to in-memory limiter (provides degraded protection vs none)
     return memRateLimit(key, maxRequests, windowMs);
   }

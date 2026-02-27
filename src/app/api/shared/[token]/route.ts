@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-server';
+import { isNotFoundError } from '@/lib/supabase-errors';
+import { logger } from '@/lib/logger';
 
 interface RouteContext {
   params: Promise<{ token: string }>;
@@ -17,7 +19,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
       .single();
 
     if (scanError) {
-      if (scanError.code === 'PGRST116') {
+      if (isNotFoundError(scanError)) {
         return NextResponse.json({ error: 'Shared report not found' }, { status: 404 });
       }
       throw scanError;
@@ -52,7 +54,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
       pages: pages ?? [],
     });
   } catch (error) {
-    console.error('Error fetching shared scan:', error);
+    logger.error('Error fetching shared scan', { error: error instanceof Error ? error.message : String(error) });
     return NextResponse.json(
       { error: 'Failed to fetch shared report' },
       { status: 500 }
