@@ -155,13 +155,18 @@ export async function GET(request: NextRequest) {
       .order('id', { ascending: false })
       .limit(limit + 1); // Fetch one extra to check if there's a next page
 
-    // Apply cursor for pagination
+    // Apply cursor for pagination with format validation
     if (cursor) {
-      const [timestamp, cursorId] = cursor.split('_');
-      if (timestamp && cursorId) {
+      // Validate cursor format: ISO timestamp + underscore + UUID
+      // Example: 2024-01-15T10:30:00.000Z_a1b2c3d4-e5f6-7890-abcd-ef1234567890
+      const cursorPattern = /^(\d{4}-\d{2}-\d{2}T[\d:.]+Z?)_([a-f0-9-]{36})$/i;
+      const match = cursor.match(cursorPattern);
+      if (match) {
+        const [, timestamp, cursorId] = match;
         // Use composite cursor: createdAt < cursor OR (createdAt = cursor AND id < cursorId)
         query = query.or(`createdAt.lt.${timestamp},and(createdAt.eq.${timestamp},id.lt.${cursorId})`);
       }
+      // Invalid cursor format is silently ignored (returns first page)
     }
 
     const { data: scans, error: dbError } = await query;

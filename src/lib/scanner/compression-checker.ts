@@ -45,6 +45,7 @@ export async function checkCompression(url: string): Promise<CompressionIssue[]>
       'User-Agent': 'SiteSheriff/1.0',
     },
     redirect: 'follow',
+    signal: AbortSignal.timeout(5000),
   });
 
   const contentType = response.headers.get('content-type') || '';

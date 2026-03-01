@@ -185,8 +185,12 @@ export class Crawler {
           continue;
         }
 
+        // Mark as visited BEFORE crawling to prevent race conditions
+        // where the same URL could be crawled multiple times
+        this.visited.add(url);
+
         // Report progress
-        this.onProgress?.(this.queue.length + this.visited.size + 1, this.visited.size, url);
+        this.onProgress?.(this.queue.length + this.visited.size, this.visited.size, url);
 
         // Crawl the page with retry logic (max 2 retries for network errors)
         let result: CrawlResult;
@@ -201,7 +205,6 @@ export class Crawler {
           }
           break;
         }
-        this.visited.add(url);
         results.push(result!);
 
         // Add internal links to queue (strip tracking params to avoid duplicates)
@@ -261,7 +264,18 @@ export class Crawler {
 
       const loadTimeMs = Date.now() - startTime;
       const statusCode = response.status;
+
+      // Check content-length to prevent memory exhaustion from huge responses
+      const MAX_HTML_SIZE = 10 * 1024 * 1024; // 10MB limit
+      const contentLength = response.headers.get('content-length');
+      if (contentLength && parseInt(contentLength, 10) > MAX_HTML_SIZE) {
+        throw new Error(`Response too large: ${contentLength} bytes`);
+      }
+
       const html = await response.text();
+      if (html.length > MAX_HTML_SIZE) {
+        throw new Error(`HTML content too large: ${html.length} bytes`);
+      }
 
       // Capture response headers
       const responseHeaders: Record<string, string> = {};
@@ -353,8 +367,12 @@ export class Crawler {
           : navTiming.protocol.toUpperCase()
         : null;
 
-      // Get HTML content
+      // Get HTML content with size limit
+      const MAX_HTML_SIZE = 10 * 1024 * 1024; // 10MB limit
       const html = await page.content();
+      if (html.length > MAX_HTML_SIZE) {
+        throw new Error(`HTML content too large: ${html.length} bytes`);
+      }
 
       // Capture response headers
       const responseHeaders: Record<string, string> = {};

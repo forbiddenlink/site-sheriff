@@ -15,13 +15,20 @@ function escapeCsvField(value: string | number | null | undefined): string {
   if (value === null || value === undefined) return '';
   let str = String(value);
 
-  // Prevent formula injection: prefix cells starting with =, +, -, @, tab, or CR
-  // with a single quote so spreadsheet apps treat them as text
-  if (/^[=+\-@\t\r]/.test(str)) {
+  // Comprehensive formula injection prevention:
+  // 1. Prefix cells starting with formula characters
+  // 2. Also escape pipes and semicolons which can be used for DDE attacks
+  // 3. Always quote fields that contain potential injection vectors
+  const hasFormulaPrefix = /^[=+\-@\t\r]/.test(str);
+  const hasDangerousChars = /[|;]/.test(str);
+
+  if (hasFormulaPrefix) {
+    // Prefix with single quote to force text interpretation
     str = `'${str}`;
   }
 
-  if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r') || str.includes("'")) {
+  // Always quote fields with dangerous characters, formulas, or standard CSV special chars
+  if (hasFormulaPrefix || hasDangerousChars || str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r') || str.includes("'")) {
     return `"${str.replaceAll('"', '""')}"`;
   }
   return str;
