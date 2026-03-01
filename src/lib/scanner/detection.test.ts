@@ -41,6 +41,7 @@ function createCrawlResult(overrides: Partial<CrawlResult> = {}): CrawlResult {
     consoleErrors: [],
     ttfbMs: 50,
     httpVersion: 'HTTP/2',
+    favicon: null,
     ...overrides,
   };
 }

@@ -78,6 +78,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
       normalizedUrl: scanRun.normalizedUrl,
       progress: scanRun.progress,
       summary: scanRun.summary,
+      settings: scanRun.settings,
       clientEmailDraft: scanRun.clientEmailDraft,
       createdAt: scanRun.createdAt,
       updatedAt: scanRun.updatedAt,

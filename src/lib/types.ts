@@ -4,7 +4,7 @@ import { z } from 'zod';
 // Scan settings schema
 // ─────────────────────────────────────────────────────────────────────────────
 export const ScanSettingsSchema = z.object({
-  maxPages: z.number().min(1).max(500).default(50),
+  maxPages: z.number().min(1).max(2000).default(50),
   maxDepth: z.number().min(1).max(10).default(5),
   includeLLM: z.boolean().default(true),
   screenshotMode: z.enum(['none', 'above-fold', 'full-page']).default('above-fold'),

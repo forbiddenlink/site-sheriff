@@ -183,6 +183,7 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [maxPages, setMaxPages] = useState(50);
+  const [crawlAllPages, setCrawlAllPages] = useState(false);
   const [maxDepth, setMaxDepth] = useState(5);
   const [screenshotMode, setScreenshotMode] = useState<'none' | 'above-fold' | 'full-page'>('above-fold');
   const [includePerformance, setIncludePerformance] = useState(true);
@@ -212,7 +213,7 @@ export default function Home() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           url,
-          settings: { maxPages, maxDepth, screenshotMode, includePerformance },
+          settings: { maxPages: crawlAllPages ? 2000 : maxPages, maxDepth, screenshotMode, includePerformance },
         }),
       });
 
@@ -332,19 +333,41 @@ export default function Home() {
                     <label htmlFor="maxPages" className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">
                       Max Pages
                     </label>
-                    <div className="flex items-center gap-3">
-                      <input
-                        id="maxPages"
-                        type="range"
-                        min={1}
-                        max={500}
-                        value={maxPages}
-                        onChange={(e) => setMaxPages(Number(e.target.value))}
-                        className="flex-1 h-1.5 rounded-full appearance-none bg-white/6 accent-emerald-500 cursor-pointer"
-                      />
-                      <span className="text-sm font-mono text-slate-300 w-8 text-right">{maxPages}</span>
+                    <div className="flex items-center gap-2 mb-2">
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={crawlAllPages}
+                        onClick={() => setCrawlAllPages(!crawlAllPages)}
+                        className={`relative w-9 h-5 rounded-full transition-colors ${
+                          crawlAllPages ? 'bg-emerald-500' : 'bg-white/10'
+                        }`}
+                      >
+                        <span
+                          className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
+                            crawlAllPages ? 'translate-x-4' : ''
+                          }`}
+                        />
+                      </button>
+                      <span className="text-xs text-slate-400">Crawl all pages (up to 2000)</span>
                     </div>
-                    <p className="text-[10px] text-slate-600 mt-1">Number of pages to crawl (1–500)</p>
+                    {!crawlAllPages && (
+                      <div className="flex items-center gap-3">
+                        <input
+                          id="maxPages"
+                          type="range"
+                          min={1}
+                          max={500}
+                          value={maxPages}
+                          onChange={(e) => setMaxPages(Number(e.target.value))}
+                          className="flex-1 h-1.5 rounded-full appearance-none bg-white/6 accent-emerald-500 cursor-pointer"
+                        />
+                        <span className="text-sm font-mono text-slate-300 w-8 text-right">{maxPages}</span>
+                      </div>
+                    )}
+                    <p className="text-[10px] text-slate-600 mt-1">
+                      {crawlAllPages ? 'Will crawl up to 2000 pages' : `Number of pages to crawl (1–500)`}
+                    </p>
                   </div>
 
                   {/* Max Depth */}

@@ -142,7 +142,7 @@ export function computeSummary(
     twitterTitle: homepage.ogTags['twitter:title'] ?? null,
     twitterDescription: homepage.ogTags['twitter:description'] ?? null,
     twitterImage: homepage.ogTags['twitter:image'] ?? null,
-    favicon: null as string | null,
+    favicon: homepage.favicon ?? null,
   } : undefined;
 
   return {

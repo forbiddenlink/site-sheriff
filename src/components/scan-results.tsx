@@ -12,6 +12,10 @@ export interface ScanData {
   status: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED';
   inputUrl: string;
   normalizedUrl: string;
+  settings?: {
+    maxPages?: number;
+    maxDepth?: number;
+  };
   progress: {
     pagesDiscovered: number;
     pagesScanned: number;
@@ -566,6 +570,31 @@ export function ScanResultsView({
                 <div className="text-xs font-medium text-slate-500 uppercase tracking-wider mt-1">Audits Run</div>
               </div>
             </div>
+
+            {/* Crawl diagnostics when few pages found */}
+            {data.progress.pagesScanned <= 1 && (data.settings?.maxPages ?? 50) > 1 && (
+              <div className="mt-4 p-4 rounded-xl bg-amber-500/5 border border-amber-500/20">
+                <div className="flex items-start gap-3">
+                  <svg className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <div>
+                    <p className="text-sm text-amber-200 font-medium">Limited pages crawled</p>
+                    <p className="text-xs text-slate-400 mt-1">
+                      Only {data.progress.pagesScanned} page{data.progress.pagesScanned === 1 ? ' was' : 's were'} crawled
+                      {data.settings?.maxPages ? ` (max: ${data.settings.maxPages})` : ''}.
+                      This can happen when:
+                    </p>
+                    <ul className="text-xs text-slate-500 mt-2 space-y-1 list-disc list-inside">
+                      <li>The homepage has no internal links to follow</li>
+                      <li>The site uses JavaScript to render navigation (SPA)</li>
+                      <li>Links use external domains or excluded patterns</li>
+                      <li>The site blocks crawlers or requires authentication</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -752,7 +781,7 @@ export function ScanResultsView({
             </div>
 
             {/* Social Preview Cards — full variant only */}
-            {isFull && data.summary.socialPreview && (data.summary.socialPreview.ogTitle || data.summary.socialPreview.ogDescription || data.summary.socialPreview.ogImage) && (
+            {isFull && (
               <div className="bg-white/2 border border-white/6 backdrop-blur-md rounded-3xl p-8 mb-8">
                 <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-6">
                   Social Share Preview
@@ -766,15 +795,24 @@ export function ScanResultsView({
                       Twitter / X
                     </div>
                     <div className="rounded-2xl border border-white/8 overflow-hidden bg-white/2">
-                      {data.summary.socialPreview.ogImage && (
+                      {(data.summary?.socialPreview?.twitterImage || data.summary?.socialPreview?.ogImage) ? (
                         <div className="h-40 bg-slate-800 relative overflow-hidden">
                           {/* eslint-disable-next-line @next/next/no-img-element -- External image from scanned website, domain unknown */}
                           <img
-                            src={data.summary.socialPreview.twitterImage || data.summary.socialPreview.ogImage}
+                            src={data.summary.socialPreview.twitterImage || data.summary.socialPreview.ogImage || ''}
                             alt="Social preview"
                             className="w-full h-full object-cover"
                             onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
                           />
+                        </div>
+                      ) : (
+                        <div className="h-40 bg-slate-800/50 flex items-center justify-center">
+                          <div className="text-center">
+                            <svg className="w-8 h-8 text-slate-600 mx-auto mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                            </svg>
+                            <span className="text-xs text-slate-600">No og:image set</span>
+                          </div>
                         </div>
                       )}
                       <div className="p-4">
@@ -782,10 +820,14 @@ export function ScanResultsView({
                           {data.normalizedUrl?.replace(/^https?:\/\//, '').replace(/\/$/, '') ?? ''}
                         </div>
                         <div className="text-sm font-medium text-slate-200 mb-1 line-clamp-1">
-                          {data.summary.socialPreview.twitterTitle || data.summary.socialPreview.ogTitle || data.inputUrl}
+                          {data.summary?.socialPreview?.twitterTitle || data.summary?.socialPreview?.ogTitle || (
+                            <span className="text-slate-500 italic">No title set</span>
+                          )}
                         </div>
                         <div className="text-xs text-slate-400 line-clamp-2">
-                          {data.summary.socialPreview.twitterDescription || data.summary.socialPreview.ogDescription || 'No description set'}
+                          {data.summary?.socialPreview?.twitterDescription || data.summary?.socialPreview?.ogDescription || (
+                            <span className="text-slate-600 italic">No description set</span>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -798,7 +840,7 @@ export function ScanResultsView({
                       Facebook / LinkedIn
                     </div>
                     <div className="rounded-2xl border border-white/8 overflow-hidden bg-white/2">
-                      {data.summary.socialPreview.ogImage && (
+                      {data.summary?.socialPreview?.ogImage ? (
                         <div className="h-48 bg-slate-800 relative overflow-hidden">
                           {/* eslint-disable-next-line @next/next/no-img-element -- External image from scanned website, domain unknown */}
                           <img
@@ -808,16 +850,29 @@ export function ScanResultsView({
                             onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
                           />
                         </div>
+                      ) : (
+                        <div className="h-48 bg-slate-800/50 flex items-center justify-center">
+                          <div className="text-center">
+                            <svg className="w-8 h-8 text-slate-600 mx-auto mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                            </svg>
+                            <span className="text-xs text-slate-600">No og:image set</span>
+                          </div>
+                        </div>
                       )}
                       <div className="p-4 border-t border-white/6">
                         <div className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">
-                          {data.summary.socialPreview.ogSiteName || data.normalizedUrl?.replace(/^https?:\/\//, '').split('/')[0] || ''}
+                          {data.summary?.socialPreview?.ogSiteName || data.normalizedUrl?.replace(/^https?:\/\//, '').split('/')[0] || ''}
                         </div>
                         <div className="text-sm font-semibold text-slate-200 mb-1 line-clamp-2">
-                          {data.summary.socialPreview.ogTitle || data.inputUrl}
+                          {data.summary?.socialPreview?.ogTitle || (
+                            <span className="text-slate-500 italic font-normal">No og:title set</span>
+                          )}
                         </div>
                         <div className="text-xs text-slate-400 line-clamp-2">
-                          {data.summary.socialPreview.ogDescription || 'No description set'}
+                          {data.summary?.socialPreview?.ogDescription || (
+                            <span className="text-slate-600 italic">No og:description set</span>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -825,7 +880,7 @@ export function ScanResultsView({
                 </div>
 
                 {/* Missing tags warning */}
-                {(!data.summary.socialPreview.ogTitle || !data.summary.socialPreview.ogDescription || !data.summary.socialPreview.ogImage) && (
+                {(!data.summary?.socialPreview?.ogTitle || !data.summary?.socialPreview?.ogDescription || !data.summary?.socialPreview?.ogImage) && (
                   <div className="mt-4 px-4 py-3 rounded-xl bg-amber-500/5 border border-amber-500/10">
                     <div className="flex items-start gap-2">
                       <svg className="w-4 h-4 text-amber-400 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -834,9 +889,9 @@ export function ScanResultsView({
                       <div className="text-xs text-amber-300/80">
                         <span className="font-semibold">Missing tags: </span>
                         {[
-                          !data.summary.socialPreview!.ogTitle && 'og:title',
-                          !data.summary.socialPreview!.ogDescription && 'og:description',
-                          !data.summary.socialPreview!.ogImage && 'og:image',
+                          !data.summary?.socialPreview?.ogTitle && 'og:title',
+                          !data.summary?.socialPreview?.ogDescription && 'og:description',
+                          !data.summary?.socialPreview?.ogImage && 'og:image',
                         ].filter(Boolean).join(', ')}
                         {' — '}These should be added for optimal social sharing appearance.
                       </div>

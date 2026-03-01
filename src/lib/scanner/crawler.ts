@@ -106,6 +106,7 @@ export interface CrawlResult {
   consoleErrors: string[];
   ttfbMs: number | null;
   httpVersion: string | null;
+  favicon: string | null;
 }
 
 export interface CrawlerOptions {
@@ -306,6 +307,7 @@ export class Crawler {
         consoleErrors: [],
         ttfbMs: null,
         httpVersion: null,
+        favicon: null,
       };
     }
   }
@@ -413,6 +415,7 @@ export class Crawler {
         consoleErrors: [],
         ttfbMs: null,
         httpVersion: null,
+        favicon: null,
       };
     } finally {
       await page.close();
@@ -479,6 +482,14 @@ export class Crawler {
     // Language
     const lang = $('html').attr('lang') || null;
 
+    // Extract favicon - check various link rel types
+    let favicon: string | null = null;
+    const faviconEl = $('link[rel="icon"], link[rel="shortcut icon"], link[rel="apple-touch-icon"]').first();
+    const faviconHref = faviconEl.attr('href');
+    if (faviconHref) {
+      favicon = resolveUrl(faviconHref, url);
+    }
+
     // Extract links
     const links: LinkData[] = [];
     $('a[href]').each((_, el) => {
@@ -530,6 +541,7 @@ export class Crawler {
       consoleErrors: [],
       ttfbMs: null,
       httpVersion: null,
+      favicon,
     };
   }
 
