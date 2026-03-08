@@ -115,3 +115,49 @@ export interface ScanRunResponse {
   createdAt: string;
   error?: string;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Scheduled Scans
+// ─────────────────────────────────────────────────────────────────────────────
+export const ScheduleFrequencySchema = z.enum(['DAILY', 'WEEKLY', 'MONTHLY']);
+export type ScheduleFrequency = z.infer<typeof ScheduleFrequencySchema>;
+
+export const CreateScheduleRequestSchema = z.object({
+  url: z.string().url('Please enter a valid URL'),
+  frequency: ScheduleFrequencySchema,
+  settings: ScanSettingsSchema.optional(),
+  alertEmail: z.string().email().optional().nullable(),
+  alertSlack: z.string().url().optional().nullable(),
+  alertOnScoreDrop: z.number().min(1).max(100).default(5),
+  alertOnNewP0: z.boolean().default(true),
+});
+
+export type CreateScheduleRequest = z.infer<typeof CreateScheduleRequestSchema>;
+
+export const UpdateScheduleRequestSchema = z.object({
+  frequency: ScheduleFrequencySchema.optional(),
+  enabled: z.boolean().optional(),
+  settings: ScanSettingsSchema.optional(),
+  alertEmail: z.string().email().optional().nullable(),
+  alertSlack: z.string().url().optional().nullable(),
+  alertOnScoreDrop: z.number().min(1).max(100).optional(),
+  alertOnNewP0: z.boolean().optional(),
+});
+
+export type UpdateScheduleRequest = z.infer<typeof UpdateScheduleRequestSchema>;
+
+export interface ScanComparison {
+  scoreDelta: number;          // positive = improvement, negative = regression
+  newP0Issues: Array<{
+    code: string;
+    title: string;
+    category: string;
+  }>;
+  resolvedIssues: Array<{
+    code: string;
+    title: string;
+    category: string;
+  }>;
+  unchangedP0Count: number;
+  categoryDeltas: Record<string, number>;
+}

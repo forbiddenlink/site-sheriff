@@ -9,18 +9,20 @@ datasource db {
 }
 
 model ScanRun {
-  id               String       @id @default(cuid())
-  createdAt        DateTime     @default(now())
-  updatedAt        DateTime     @updatedAt
+  id               String        @id @default(cuid())
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
   inputUrl         String
   normalizedUrl    String
-  status           ScanStatus   @default(QUEUED)
+  status           ScanStatus    @default(QUEUED)
   error            String?
-  settings         Json         @default("{}")
-  progress         Json         @default("{}")
+  settings         Json          @default("{}")
+  progress         Json          @default("{}")
   summary          Json?
   clientEmailDraft String?
-  shareToken       String?      @unique
+  shareToken       String?       @unique
+  scheduleId       String?
+  schedule         ScanSchedule? @relation(fields: [scheduleId], references: [id])
   issues           Issue[]
   pageResults      PageResult[]
 
@@ -28,6 +30,7 @@ model ScanRun {
   @@index([createdAt])
   @@index([normalizedUrl])
   @@index([normalizedUrl, status, createdAt])
+  @@index([scheduleId])
 }
 
 model PageResult {
@@ -94,4 +97,34 @@ enum IssueCategory {
   LINKS
   CONTENT
   SECURITY
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Scheduled Scans (P0 Monetization)
+// ─────────────────────────────────────────────────────────────────────────────
+
+model ScanSchedule {
+  id               String            @id @default(cuid())
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  url              String            // Normalized URL to scan
+  frequency        ScheduleFrequency
+  enabled          Boolean           @default(true)
+  lastRunAt        DateTime?
+  nextRunAt        DateTime
+  settings         Json              @default("{}") // Scan settings (maxPages, maxDepth, etc.)
+  alertEmail       String?           // Email for alerts
+  alertSlack       String?           // Slack webhook URL
+  alertOnScoreDrop Int               @default(5)    // Alert if score drops by this amount
+  alertOnNewP0     Boolean           @default(true)
+  scanRuns         ScanRun[]
+
+  @@index([nextRunAt, enabled])
+  @@index([url])
+}
+
+enum ScheduleFrequency {
+  DAILY
+  WEEKLY
+  MONTHLY
 }
