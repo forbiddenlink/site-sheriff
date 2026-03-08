@@ -123,9 +123,10 @@ export function computeSummary(
   const topIssues = Array.from(issueCounts.values())
     .sort((a, b) => {
       // Sort by severity first, then by count
-      const severityOrder = { P0: 0, P1: 1, P2: 2, P3: 3 };
-      const severityDiff = (severityOrder[a.severity as keyof typeof severityOrder] || 4) -
-        (severityOrder[b.severity as keyof typeof severityOrder] || 4);
+      const severityOrder: Record<string, number> = { P0: 0, P1: 1, P2: 2, P3: 3 };
+      const aOrder = severityOrder[a.severity] ?? 4;
+      const bOrder = severityOrder[b.severity] ?? 4;
+      const severityDiff = aOrder - bOrder;
       if (severityDiff !== 0) return severityDiff;
       return b.count - a.count;
     })
