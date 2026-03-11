@@ -35,7 +35,9 @@ export function checkCanonical(result: CrawlResult): SEOIssue[] {
     try {
       const canonicalDomain = new URL(result.canonical).hostname;
       const pageDomain = new URL(result.url).hostname;
-      if (canonicalDomain !== pageDomain) {
+      // Exempt www. <-> non-www. difference (intentional canonical preference, not a misconfiguration)
+      const normalizeWww = (h: string) => h.replace(/^www\./, '');
+      if (canonicalDomain !== pageDomain && normalizeWww(canonicalDomain) !== normalizeWww(pageDomain)) {
         issues.push({
           code: 'cross_domain_canonical',
           severity: 'P1',
@@ -77,10 +79,12 @@ export async function validateCanonicals(results: CrawlResult[]): Promise<SEOIss
     const pageUrl = pages[0];
 
     // Check for cross-domain canonical
+    // Exempt www. <-> non-www. difference (intentional canonical preference, not a misconfiguration)
     try {
       const pageDomain = new URL(pageUrl).hostname;
       const canonicalDomain = new URL(canonicalUrl).hostname;
-      if (canonicalDomain !== pageDomain) {
+      const normalizeWww = (h: string) => h.replace(/^www\./, '');
+      if (canonicalDomain !== pageDomain && normalizeWww(canonicalDomain) !== normalizeWww(pageDomain)) {
         issues.push({
           code: 'canonical_cross_domain',
           severity: 'P2',

@@ -27,7 +27,9 @@ export function extractHreflangTags(html: string): Array<{ lang: string; href: s
 export function normalizeHreflangUrl(url: string): string {
   try {
     const parsed = new URL(url);
-    return (parsed.origin + parsed.pathname).replace(/\/+$/, '').toLowerCase();
+    // Strip www. so that mozilla.org == www.mozilla.org when comparing hreflang references
+    const hostname = parsed.hostname.replace(/^www\./, '');
+    return (parsed.protocol + '//' + hostname + parsed.pathname).replace(/\/+$/, '').toLowerCase();
   } catch {
     return url.replace(/\/+$/, '').toLowerCase();
   }
@@ -53,9 +55,11 @@ export function checkHreflang(result: CrawlResult): SEOIssue[] {
 
   if (hreflangTags.length > 0) {
     // Self-referencing check
-    const normalizedPageUrl = result.url.replace(/\/$/, '').toLowerCase();
+    // Normalize www. prefix so that mozilla.org == www.mozilla.org
+    const stripWww = (u: string) => u.replace(/^\/\//,'').replace(/^https?:\/\//i,'').replace(/^www\./,'');
+    const normalizedPageUrl = stripWww(result.url.replace(/\/$/, '').toLowerCase());
     const hasSelfReference = hreflangTags.some(t => {
-      try { return t.href.replace(/\/$/, '').toLowerCase() === normalizedPageUrl; }
+      try { return stripWww(t.href.replace(/\/$/, '').toLowerCase()) === normalizedPageUrl; }
       catch { return false; }
     });
     if (!hasSelfReference) {
@@ -73,9 +77,12 @@ export function checkHreflang(result: CrawlResult): SEOIssue[] {
     }
 
     // Invalid language code check
-    const validLangRegex = /^[a-z]{2}(-[A-Z]{2})?$|^x-default$/;
+    // BCP 47 / Google hreflang codes are case-insensitive — accept en-us, en-US, EN-US equally.
+    // Also accept 3-part tags like zh-Hant-TW (language + Script + Region) which are
+    // valid per BCP 47 and explicitly supported by Google for Chinese Traditional targeting.
+    const validLangRegex = /^[a-z]{2,3}(-[a-z0-9]{2,8}){0,2}$|^x-default$/;
     for (const tag of hreflangTags) {
-      if (!validLangRegex.test(tag.lang)) {
+      if (!validLangRegex.test(tag.lang.toLowerCase())) {
         issues.push({
           code: 'hreflang_invalid_language',
           severity: 'P2',

@@ -1,3 +1,4 @@
+import * as cheerio from 'cheerio';
 import type { CrawlResult } from '../crawler';
 import type { SEOIssue } from './types';
 
@@ -110,37 +111,58 @@ export function checkMobileUsability(result: CrawlResult): SEOIssue[] {
     });
   }
 
-  // Check for intrusive interstitials/modals that may block content on mobile
-  const interstitialPatterns = [
-    // Common modal/popup class names
-    /class\s*=\s*["'][^"']*\b(modal|popup|overlay|lightbox|dialog|interstitial)\b[^"']*["']/gi,
-    // Common modal ID patterns
-    /id\s*=\s*["'][^"']*\b(modal|popup|overlay|lightbox|dialog|interstitial)\b[^"']*["']/gi,
-    // Fixed/absolute positioning with high z-index (potential overlay)
-    /style\s*=\s*["'][^"']*position\s*:\s*(fixed|absolute)[^"']*z-index\s*:\s*(\d{4,})[^"']*["']/gi,
-  ];
+  // Check for intrusive interstitials/modals that may block content on mobile.
+  // Detect genuine intrusive interstitials — elements covering page content at render time.
+  // Strategy: element must have an interstitial-keyword class/id AND position:fixed in
+  // inline style. This catches content-blocking overlays rendered by the server (e.g. a
+  // login gate, email-signup popup, or adblocker wall shown immediately on page load)
+  // while skipping:
+  //   - hidden modal templates (no inline position:fixed, or have aria-hidden/d-none)
+  //   - <dialog> elements not explicitly opened (dialog element without 'open')
+  //   - third-party chat widgets / cookie bars (position:fixed but no modal keyword)
+  //   - navigation dropdowns / active menu items (no inline position:fixed)
+  const $$ = cheerio.load(result.html);
+  const interstitialKeywords = /\b(modal|popup|overlay|lightbox|interstitial)\b/i;
+  const hiddenClassPattern = /\b(d-none|hidden|is-hidden|hide|ng-hide|sr-only|visually-hidden|invisible)\b/i;
 
-  const interstitialIndicators: string[] = [];
+  const visibleInterstitials: string[] = [];
 
-  for (const pattern of interstitialPatterns) {
-    const matches = result.html.match(pattern);
-    if (matches && matches.length > 0) {
-      // Extract the class/id name for evidence
-      for (const match of matches.slice(0, 2)) {
-        const nameMatch = /\b(modal|popup|overlay|lightbox|dialog|interstitial)\b/i.exec(match);
-        if (nameMatch) {
-          interstitialIndicators.push(nameMatch[1].toLowerCase());
-        } else if (/z-index/.test(match)) {
-          interstitialIndicators.push('high z-index overlay');
-        }
-      }
-    }
-  }
+  $$('[class], [id]').each((_, el) => {
+    const classVal = $$(el).attr('class') ?? '';
+    const idVal = $$(el).attr('id') ?? '';
+    if (!interstitialKeywords.test(classVal) && !interstitialKeywords.test(idVal)) return;
 
-  // Deduplicate indicators
-  const uniqueIndicators = [...new Set(interstitialIndicators)];
+    // Skip if hidden via HTML attributes
+    if ($$(el).attr('hidden') !== undefined) return;
+    if ($$(el).attr('aria-hidden') === 'true') return;
+    // <dialog> without `open` is hidden by default per HTML spec
+    if (el.type === 'tag' && el.tagName.toLowerCase() === 'dialog' && $$(el).attr('open') === undefined) return;
 
-  if (uniqueIndicators.length > 0) {
+    const inlineStyle = ($$(el).attr('style') ?? '').toLowerCase();
+    // Skip if hidden via inline style
+    if (inlineStyle.includes('display:none') || inlineStyle.includes('display: none')) return;
+    if (inlineStyle.includes('visibility:hidden') || inlineStyle.includes('visibility: hidden')) return;
+    // Skip if hidden via CSS-framework hidden class
+    if (hiddenClassPattern.test(classVal)) return;
+
+    // Require position:fixed in inline style — the definitive signal that this
+    // element covers content at render time. Without it, the element is just a
+    // DOM template (Bootstrap modals, GitHub Primer overlays etc.) hidden by CSS.
+    const isFixed = inlineStyle.includes('position:fixed') || inlineStyle.includes('position: fixed');
+    if (!isFixed) return;
+
+    const keyword = interstitialKeywords.exec(classVal) ?? interstitialKeywords.exec(idVal);
+    if (keyword) visibleInterstitials.push(keyword[1].toLowerCase());
+  });
+
+  // Also catch <dialog open> — explicit open state on a dialog element
+  $$('dialog[open]').each(() => {
+    visibleInterstitials.push('dialog');
+  });
+
+  const uniqueIndicators = [...new Set(visibleInterstitials)];
+
+  if (uniqueIndicators.length >= 1) {
     issues.push({
       code: 'mobile_usability_interstitial',
       severity: 'P2',

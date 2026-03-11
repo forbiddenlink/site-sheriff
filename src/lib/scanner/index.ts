@@ -9,6 +9,7 @@ import { checkCompression } from './compression-checker';
 import { checkRobotsSitemap, parseDisallowPatterns } from './robots-checker';
 import { detectTechnologies } from './tech-detector';
 import { generateEmailDraft } from './email-draft';
+import { generateAIEmailDraft } from './ai-summary';
 import { checkContentQuality } from './content-checker';
 import { checkImageOptimization } from './image-checker';
 import { checkResourceOptimization } from './resource-checker';
@@ -427,22 +428,29 @@ export async function runScan(ctx: ScanContext): Promise<void> {
         }
 
         // (b) Sitemap URLs not reached by crawler
-        for (const smUrl of sitemapUrls) {
-          const norm = normalizeForCompare(smUrl);
-          if (!crawledMap.has(norm)) {
-            allIssues.push({
-              code: 'sitemap_url_not_crawled',
-              severity: 'P2',
-              category: 'SEO',
-              title: 'Sitemap URL was not reached by crawler',
-              whyItMatters:
-                'This URL is listed in your sitemap but was not reachable from any page during the crawl. It may be an orphan page with no internal links pointing to it.',
-              howToFix:
-                'Add internal links to this page from other pages on your site, or remove it from the sitemap if it is no longer relevant.',
-              evidence: { url: smUrl },
-              impact: 3,
-              effort: 1,
-            });
+        // Only flag when the sitemap is small enough that our crawl had a realistic
+        // chance of reaching every URL. On large sites (hundreds of sitemap URLs) the
+        // crawler only visits a subset by design, so every uncrawled URL would be a
+        // false positive — it's out of crawl scope, not an orphan page.
+        const crawlLimit = settings.maxPages ?? 50;
+        if (sitemapUrls.length <= crawlLimit * 3) {
+          for (const smUrl of sitemapUrls) {
+            const norm = normalizeForCompare(smUrl);
+            if (!crawledMap.has(norm)) {
+              allIssues.push({
+                code: 'sitemap_url_not_crawled',
+                severity: 'P2',
+                category: 'SEO',
+                title: 'Sitemap URL was not reached by crawler',
+                whyItMatters:
+                  'This URL is listed in your sitemap but was not reachable from any page during the crawl. It may be an orphan page with no internal links pointing to it.',
+                howToFix:
+                  'Add internal links to this page from other pages on your site, or remove it from the sitemap if it is no longer relevant.',
+                evidence: { url: smUrl },
+                impact: 3,
+                effort: 1,
+              });
+            }
           }
         }
 
@@ -1156,12 +1164,15 @@ export async function runScan(ctx: ScanContext): Promise<void> {
     // Compute summary
     const summary = computeSummary(uniqueIssues, crawlResults, Date.now() - startTime, technologies);
 
-    // Generate client email draft
+    // Generate client email draft (AI if key present, else template fallback)
     const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || process.env.VERCEL_PROJECT_PRODUCTION_URL
       ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
       : 'https://site-sheriff.vercel.app';
     const reportUrl = `${siteUrl}/scan/${scanRunId}`;
-    const clientEmailDraft = generateEmailDraft(
+    const aiDraft = settings.includeLLM
+      ? await generateAIEmailDraft(scanRun.inputUrl, summary, uniqueIssues, reportUrl)
+      : null;
+    const clientEmailDraft = aiDraft ?? generateEmailDraft(
       scanRun.inputUrl,
       summary,
       uniqueIssues,

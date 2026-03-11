@@ -36,9 +36,10 @@ export async function GET(request: NextRequest, context: RouteContext) {
       throw scanError;
     }
 
-    // Get previous scan for trend comparison
+    // Get previous scans for trend comparison and sparkline (up to 9 prior + current)
     let previousScan: { id: string; score: number; createdAt: string } | null = null;
-    if (scanRun.status === 'SUCCEEDED' && scanRun.normalizedUrl) {
+    let scoreHistory: Array<{ id: string; score: number; createdAt: string }> = [];
+    if (scanRun.status === 'SUCCEEDED' && scanRun.normalizedUrl && scanRun.summary?.overallScore != null) {
       const { data: prevScans } = await supabaseAdmin
         .from('ScanRun')
         .select('id, summary, createdAt')
@@ -46,15 +47,24 @@ export async function GET(request: NextRequest, context: RouteContext) {
         .eq('status', 'SUCCEEDED')
         .neq('id', validId)
         .order('createdAt', { ascending: false })
-        .limit(1);
+        .limit(9);
 
-      if (prevScans && prevScans.length > 0 && prevScans[0].summary?.overallScore != null) {
-        previousScan = {
-          id: prevScans[0].id,
-          score: prevScans[0].summary.overallScore,
-          createdAt: prevScans[0].createdAt,
-        };
+      if (prevScans && prevScans.length > 0) {
+        const valid = prevScans.filter((s) => s.summary?.overallScore != null);
+        if (valid.length > 0) {
+          previousScan = {
+            id: valid[0].id,
+            score: valid[0].summary.overallScore,
+            createdAt: valid[0].createdAt,
+          };
+          // Build history oldest→newest then append current as final point
+          scoreHistory = valid
+            .reverse()
+            .map((s) => ({ id: s.id, score: s.summary.overallScore as number, createdAt: s.createdAt as string }));
+        }
       }
+      // Always include current scan as last point
+      scoreHistory.push({ id: scanRun.id, score: scanRun.summary.overallScore as number, createdAt: scanRun.createdAt as string });
     }
 
     // Get issues (ordered by severity asc, createdAt asc)
@@ -84,6 +94,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
       updatedAt: scanRun.updatedAt,
       error: scanRun.error,
       previousScan,
+      scoreHistory: scoreHistory.length >= 2 ? scoreHistory : [],
       issues: issues ?? [],
       pages: pages ?? [],
     });

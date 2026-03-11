@@ -437,15 +437,17 @@ describe('checkContentQuality', () => {
   });
 
   describe('keyword stuffing detection', () => {
-    it('flags keyword stuffing (> 7% density)', () => {
-      // Create text with excessive keyword repetition
+    it('flags keyword stuffing (> 8% density with heading corroboration)', () => {
+      // Create text with excessive keyword repetition.
+      // The keyword must appear in a heading to pass the two-signal check:
+      // real SEO keyword stuffing always targets headings, unlike data-table repetition.
       const keyword = 'optimization';
       const filler = 'content text writing reading article blog post website marketing digital strategy';
-      // ~240 words total, with keyword appearing ~20 times = ~8% density
-      const stuffedText = Array(20).fill(`${keyword} ${filler}`).join(' ');
+      // ~300 words total, with keyword appearing ~30 times ≈ 9% of all visible words
+      const stuffedText = Array(30).fill(`${keyword} ${filler}`).join(' ');
       const result = createMockCrawlResult({
-        html: `<html><body><p>${stuffedText}.</p></body></html>`,
-        wordCount: 250,
+        html: `<html><body><h2>${keyword} guide</h2><p>${stuffedText}.</p></body></html>`,
+        wordCount: 300,
       });
       const issues = checkContentQuality(result);
 
@@ -497,6 +499,46 @@ describe('checkContentQuality', () => {
       });
       const issues = checkContentQuality(result);
 
+      expect(issues.find(i => i.code === 'keyword_stuffing')).toBeUndefined();
+    });
+
+    it('does not flag technical state words like "experimental" even at extreme density (MDN API listing FP)', () => {
+      // MDN /docs/Web/API has hundreds of "Experimental" badge labels repeated on every
+      // API row — this could push density above 20% but is pure UI chrome, not stuffing.
+      const experimental = Array(80).fill('Experimental').join(' ');
+      const filler = Array(30).fill('API interface browser web method property returns object').join(' ');
+      const result = createMockCrawlResult({
+        url: 'https://developer.mozilla.org/en-US/docs/Web/API',
+        html: `<html><body><h1>Web APIs</h1><p>${experimental} ${filler}</p></body></html>`,
+        wordCount: 500,
+      });
+      const issues = checkContentQuality(result);
+      expect(issues.find(i => i.code === 'keyword_stuffing')).toBeUndefined();
+    });
+
+    it('does not flag "function" on a JavaScript Functions reference page (URL stem FP)', () => {
+      // /docs/Web/JavaScript/Reference/Functions has "function" all over it legitimately.
+      // The URL path segment "Functions" → de-pluraled "Function" should be in brandWords.
+      const functionText = Array(25).fill('function arrow block scope declaration statement expression').join(' ');
+      const filler = Array(20).fill('javascript syntax code programming language runtime').join(' ');
+      const result = createMockCrawlResult({
+        url: 'https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Functions',
+        html: `<html><body><h1>Functions</h1><h2>function declarations</h2><p>${functionText} ${filler}</p></body></html>`,
+        wordCount: 350,
+      });
+      const issues = checkContentQuality(result);
+      expect(issues.find(i => i.code === 'keyword_stuffing')).toBeUndefined();
+    });
+
+    it('does not flag "deprecated" repeated on an API deprecation reference page', () => {
+      const deprecatedText = Array(60).fill('deprecated').join(' ');
+      const filler = Array(40).fill('API browser support removed legacy method interface standard').join(' ');
+      const result = createMockCrawlResult({
+        url: 'https://developer.mozilla.org/en-US/docs/Web/API/OldAPI',
+        html: `<html><body><h1>Deprecated APIs</h1><p>${deprecatedText} ${filler}</p></body></html>`,
+        wordCount: 400,
+      });
+      const issues = checkContentQuality(result);
       expect(issues.find(i => i.code === 'keyword_stuffing')).toBeUndefined();
     });
   });

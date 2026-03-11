@@ -5,6 +5,7 @@ import { runScan } from '@/lib/scanner';
 import { logger } from '@/lib/logger';
 import { calculateNextRunAfterCompletion } from '@/lib/schedule-utils';
 import { compareScans, shouldTriggerAlert } from '@/lib/scan-comparison';
+import { sendAlertEmail } from '@/lib/alert-email';
 import type { ScanSettings, ScheduleFrequency } from '@/lib/types';
 
 // Allow up to 600 seconds for cron processing
@@ -205,7 +206,7 @@ async function checkAndSendAlerts(scanRunId: string, schedule: Schedule) {
 
       // Send alerts (email and/or Slack)
       if (schedule.alertEmail) {
-        await sendEmailAlert(schedule.alertEmail, schedule.url, comparison, reasons);
+        await sendAlertEmail(schedule.alertEmail, schedule.url, comparison, reasons, scanRunId);
       }
       if (schedule.alertSlack) {
         await sendSlackAlert(schedule.alertSlack, schedule.url, comparison, reasons);
@@ -217,16 +218,6 @@ async function checkAndSendAlerts(scanRunId: string, schedule: Schedule) {
       error: err instanceof Error ? err.message : String(err),
     });
   }
-}
-
-async function sendEmailAlert(
-  email: string,
-  url: string,
-  comparison: ReturnType<typeof compareScans>,
-  reasons: string[]
-) {
-  // TODO: Implement email alerting via Resend
-  logger.info('Email alert would be sent', { email, url, reasons: reasons.join('; '), scoreDelta: comparison.scoreDelta });
 }
 
 async function sendSlackAlert(

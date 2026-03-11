@@ -49,10 +49,10 @@ export function checkSPARendering(result: CrawlResult): SPAIssue[] {
     indicators.push('SPA framework or bundled JS detected');
   }
 
-  // Check for noscript tags (often present in SPAs)
-  if (/<noscript>/.test(html)) {
-    indicators.push('<noscript> fallback present');
-  }
+  // Note: <noscript> presence is intentionally NOT added to indicators because
+  // it is a good practice (not a sign of SPA behavior), and including it would
+  // cause false positives on bot-challenge pages (e.g. Cloudflare JS challenges)
+  // that have minimal body text + a short <noscript> tag.
 
   // Only flag if word count is very low AND we found SPA indicators
   const isLikelySPA = indicators.length >= 2 && (result.wordCount ?? 0) < 100;
@@ -119,18 +119,33 @@ export function checkSPARendering(result: CrawlResult): SPAIssue[] {
   }
 
   // Lazy Load Above Fold (P2)
-  // Check if the first 3 img tags use loading="lazy" (above-fold images shouldn't)
+  // Check if the first 3 img tags use loading="lazy" (above-fold images shouldn't).
+  // Skip small/icon images (logos, favicons, tracking pixels) by requiring a
+  // meaningful src that looks like content — skip data: URIs, tiny SVGs, and any
+  // image src that contains 'icon', 'logo', 'pixel', 'beacon', or 'sprite'.
   const imgTagMatches = [...html.matchAll(/<img\s[^>]*>/gi)];
-  const aboveFoldImgCount = Math.min(3, imgTagMatches.length);
   const lazyAboveFoldImages: string[] = [];
+  let checkedCount = 0;
 
-  for (let i = 0; i < aboveFoldImgCount; i++) {
-    const imgTag = imgTagMatches[i][0];
+  for (const match of imgTagMatches) {
+    if (checkedCount >= 3) break;
+    const imgTag = match[0];
+    const srcMatch = imgTag.match(/\bsrc\s*=\s*["']([^"']+)["']/i);
+    const src = srcMatch ? srcMatch[1] : '';
+
+    // Skip data URIs, icons, logos, tracking pixels, and SVG-only imgs
+    if (!src || src.startsWith('data:')) continue;
+    if (/icon|logo|pixel|beacon|sprite|favicon/i.test(src)) continue;
+    if (src.endsWith('.svg')) continue;
+    // Skip images with explicit tiny dimensions (width/height < 50)
+    const wMatch = imgTag.match(/\bwidth\s*=\s*["'](\d+)["']/i);
+    const hMatch = imgTag.match(/\bheight\s*=\s*["'](\d+)["']/i);
+    if (wMatch && Number(wMatch[1]) < 50) continue;
+    if (hMatch && Number(hMatch[1]) < 50) continue;
+
+    checkedCount++;
     if (/\bloading\s*=\s*["']lazy["']/i.test(imgTag)) {
-      // Extract src for evidence
-      const srcMatch = imgTag.match(/\bsrc\s*=\s*["']([^"']+)["']/i);
-      const src = srcMatch ? srcMatch[1] : `Image ${i + 1}`;
-      lazyAboveFoldImages.push(src);
+      lazyAboveFoldImages.push(src.slice(0, 120));
     }
   }
 
@@ -155,8 +170,10 @@ export function checkSPARendering(result: CrawlResult): SPAIssue[] {
   }
 
   // Noscript Fallback Missing (P2)
-  // If page uses JS framework, check for meaningful <noscript> content
-  if (detectedFrameworks.length > 0 || isLikelySPA || hasMinimalBody) {
+  // Only flag pages that appear to be CLIENT-SIDE rendered (isLikelySPA or minimal body).
+  // SSR frameworks like Next.js, Nuxt, SvelteKit render full HTML server-side so a
+  // <noscript> tag is NOT required — detecting a framework bundle alone is insufficient.
+  if (isLikelySPA || hasMinimalBody) {
     const noscriptMatches = [...html.matchAll(/<noscript[^>]*>([\s\S]*?)<\/noscript>/gi)];
     let hasMeaningfulNoscript = false;
 

@@ -27,6 +27,26 @@ const STOP_WORDS = new Set([
   'now', 'look', 'only', 'come', 'its', 'over', 'think', 'also', 'back',
   'after', 'use', 'two', 'how', 'our', 'work', 'first', 'well', 'way', 'even',
   'new', 'want', 'because', 'any', 'these', 'give', 'day', 'most', 'us',
+  // Additional high-frequency English words that are not keyword-stuffing signals
+  'more', 'less', 'very', 'much', 'many', 'such', 'may', 'each', 'been', 'has',
+  'had', 'were', 'said', 'did', 'does', 'are', 'was', 'is', 'am', 'being',
+  'where', 'while', 'those', 'through', 'between', 'both', 'few', 'own', 'same',
+  'too', 'again', 'further', 'once', 'here', 'why',
+  'under', 'until', 'with', 'need', 'across', 'without', 'per', 'via',
+  'within', 'including', 'following', 'since', 'due', 'together', 'using',
+  'help', 'let', 'set', 'used', 'based',
+  // Common adjectives/adverbs heavily used in marketing copy (not stuffing signals)
+  'every', 'always', 'never', 'still', 'often', 'ever', 'really', 'truly',
+  'easy', 'simple', 'fast', 'free', 'full', 'high', 'low', 'top', 'key',
+  'open', 'true', 'real', 'better', 'best', 'great', 'right', 'small', 'large',
+]);
+
+// UI/status label words found in reference documentation sites (MDN, developer portals,
+// API explorers) where they appear as repeated badge text, not as SEO keyword stuffing.
+// Exclude these from the top-word candidate so they never trigger keyword_stuffing.
+const TECHNICAL_STATE_WORDS = new Set([
+  'experimental', 'deprecated', 'obsolete', 'nonstandard', 'standard',
+  'baseline', 'beta', 'alpha', 'preview', 'stable', 'unstable',
 ]);
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -291,19 +311,62 @@ function checkHeadingHierarchy(url: string, headings: HeadingData[]): ContentIss
   return issues;
 }
 
-function checkKeywordStuffing(url: string, plainText: string): ContentIssue[] {
-  const words = plainText
+function checkKeywordStuffing(url: string, html: string): ContentIssue[] {
+  // Build a set of brand/domain words AND page-topic words from the URL so a
+  // site's own name and the specific page topic aren't flagged as stuffing.
+  // e.g. "stripe.com/authorization-boost" → {"stripe", "authorization", "boost"}
+  const brandWords = new Set<string>();
+  try {
+    const parsed = new URL(url);
+    // Hostname: "smashing-magazine.com" → {"smashing", "magazine"}
+    const hostname = parsed.hostname.replace(/^www\./, '');
+    for (const part of hostname.split(/[.\-]/)) {
+      if (part.length > 2) brandWords.add(part.toLowerCase());
+    }
+    // Path segments: "/authorization-boost/features" → {"authorization", "boost", "features"}
+    // Also add de-pluraled (strip trailing 's') of each segment so that a URL like
+    // "/JavaScript/Reference/Functions" also covers the singular "function" — that
+    // page's entire purpose is documenting functions, not stuffing the word as spam.
+    for (const segment of parsed.pathname.split(/[\/\-_]/)) {
+      if (segment.length > 2) {
+        const word = segment.toLowerCase();
+        brandWords.add(word);
+        if (word.endsWith('s') && word.length > 3) brandWords.add(word.slice(0, -1));
+      }
+    }
+  } catch {
+    // ignore invalid URLs
+  }
+
+  // Strip navigational chrome and non-content before word counting.
+  const $ks = cheerio.load(html);
+  $ks('nav, header, footer, aside, [role="navigation"], [role="banner"], [role="contentinfo"], script, style').remove();
+
+  // Extract heading/title text for corroboration check (real SEO stuffing always
+  // targets heading elements; data-table/"treatment group" repetition never does).
+  const headingText = $ks('title, h1, h2, h3').text().toLowerCase();
+
+  const mainText = $ks.text();
+
+  // Use ALL visible words as denominator so stop-word removal doesn't inflate density.
+  // Only exclude stop/brand words from being the *candidate* stuffed word.
+  const allWords = mainText
     .toLowerCase()
     .split(/\s+/)
-    .filter((w) => w.length > 2)
     .map((w) => w.replaceAll(/[^a-z]/g, ''))
-    .filter((w) => w.length > 2 && !STOP_WORDS.has(w));
+    .filter((w) => w.length > 2);
 
-  if (words.length <= 200) return [];
+  if (allWords.length <= 200) return [];
+
+  const total = allWords.length; // true denominator — all visible words
 
   const freq = new Map<string, number>();
-  for (const w of words) {
-    freq.set(w, (freq.get(w) ?? 0) + 1);
+  for (const w of allWords) {
+    // Only count content words (skip stop words, brand words, and UI status labels)
+    // so they can't be falsely identified as the stuffed keyword.
+    if (!STOP_WORDS.has(w) && !brandWords.has(w) && !TECHNICAL_STATE_WORDS.has(w)) {
+      freq.set(w, (freq.get(w) ?? 0) + 1);
+    }
   }
 
   let topWord = '';
@@ -315,8 +378,20 @@ function checkKeywordStuffing(url: string, plainText: string): ContentIssue[] {
     }
   }
 
-  const density = topCount / words.length;
-  if (density > 0.07) {
+  const density = topCount / total;
+
+  // Two-signal approach: density flag alone is insufficient for borderline cases
+  // because legitimate data-heavy pages (A/B test case studies, dashboards) can
+  // repeat a technical term many times without SEO intent.
+  //
+  // Gate 1 (density):   >8% of all visible words IS the candidate keyword.
+  // Gate 2 (heading):   The keyword appears in the title or an h1-h3 element,
+  //                     which is where real keyword stuffing always concentrates.
+  //                     Exception: ultra-extreme density (>20%) is flagged anyway.
+  const inHeadings = headingText.includes(topWord);
+  const ultraExtreme = density > 0.20;
+
+  if (density > 0.08 && (inHeadings || ultraExtreme)) {
     return [{
       code: 'keyword_stuffing',
       severity: 'P2',
@@ -330,7 +405,7 @@ function checkKeywordStuffing(url: string, plainText: string): ContentIssue[] {
         url,
         keyword: topWord,
         occurrences: topCount,
-        totalWords: words.length,
+        totalWords: total,
         density: `${(density * 100).toFixed(1)}%`,
       },
       impact: 4,
@@ -448,7 +523,7 @@ export function checkContentQuality(result: CrawlResult): ContentIssue[] {
     ...checkReadability(result.url, plainText),
     ...checkImageAltText(result.url, result.images),
     ...checkHeadingHierarchy(result.url, result.headings),
-    ...checkKeywordStuffing(result.url, plainText),
+    ...checkKeywordStuffing(result.url, result.html),
     ...checkDeprecatedHtmlTags(result.url, result.html),
     ...checkFormLabels(result.url, result.html),
     ...checkIframeTitles(result.url, result.html),

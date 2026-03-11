@@ -10,6 +10,8 @@ export function normalizeUrl(input: string): string {
     // Add protocol if missing
     let url = input.trim();
     if (!url.match(/^https?:\/\//i)) {
+      // Strip any non-http scheme (ftp://, file://, etc.) before adding https://
+      url = url.replace(/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//, '');
       url = `https://${url}`;
     }
 

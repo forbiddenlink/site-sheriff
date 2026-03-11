@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { checkEEAT } from './eeat-checker';
 import { checkSEO } from './seo-checker';
+import { checkHreflang } from './seo-checker/hreflang';
 import { checkImageOptimization } from './image-checker';
 import { checkResourceOptimization } from './resource-checker';
 import { checkLlmsTxt, checkAIReadiness, checkAICrawlerAccess } from './ai-readiness-checker';
@@ -1074,5 +1075,85 @@ describe('WCAG 2.2 Helper Functions', () => {
       expect(info.description).toBeDefined();
       expect(info.description.length).toBeGreaterThan(10);
     }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Hreflang language code validation
+// Tests that BCP 47 tags (including 3-part zh-Hant-TW style) are accepted
+// ─────────────────────────────────────────────────────────────────────────────
+describe('checkHreflang language code validation', () => {
+  function buildResult(url: string, langTags: Array<{ lang: string; href: string }>): CrawlResult {
+    const hreflangHtml = langTags
+      .map(({ lang, href }) => `<link rel="alternate" hreflang="${lang}" href="${href}">`)
+      .join('\n');
+    return createCrawlResult({
+      url,
+      html: `<html><head>${hreflangHtml}</head><body></body></html>`,
+    });
+  }
+
+  it('accepts standard 2-part hreflang like en-US', () => {
+    const result = buildResult('https://example.com/en/', [
+      { lang: 'en-US', href: 'https://example.com/en/' },
+      { lang: 'x-default', href: 'https://example.com/' },
+    ]);
+    const issues = checkHreflang(result);
+    expect(issues.filter(i => i.code === 'hreflang_invalid_language')).toHaveLength(0);
+  });
+
+  it('accepts numeric region codes like es-419', () => {
+    const result = buildResult('https://example.com/es/', [
+      { lang: 'es-419', href: 'https://example.com/es/' },
+      { lang: 'x-default', href: 'https://example.com/' },
+    ]);
+    const issues = checkHreflang(result);
+    expect(issues.filter(i => i.code === 'hreflang_invalid_language')).toHaveLength(0);
+  });
+
+  it('accepts 3-part BCP 47 tags like zh-Hant-TW (Chinese Traditional Taiwan)', () => {
+    const result = buildResult('https://example.com/zh-tw/', [
+      { lang: 'zh-Hant-TW', href: 'https://example.com/zh-tw/' },
+      { lang: 'zh-Hans-CN', href: 'https://example.com/zh-cn/' },
+      { lang: 'x-default', href: 'https://example.com/' },
+    ]);
+    const issues = checkHreflang(result);
+    expect(issues.filter(i => i.code === 'hreflang_invalid_language')).toHaveLength(0);
+  });
+
+  it('accepts lowercase 3-part tags like zh-hant-tw', () => {
+    const result = buildResult('https://example.com/zh-tw/', [
+      { lang: 'zh-hant-tw', href: 'https://example.com/zh-tw/' },
+      { lang: 'x-default', href: 'https://example.com/' },
+    ]);
+    const issues = checkHreflang(result);
+    expect(issues.filter(i => i.code === 'hreflang_invalid_language')).toHaveLength(0);
+  });
+
+  it('accepts sr-Cyrl-RS (Serbian Cyrillic Serbia)', () => {
+    const result = buildResult('https://example.com/sr/', [
+      { lang: 'sr-Cyrl-RS', href: 'https://example.com/sr/' },
+      { lang: 'x-default', href: 'https://example.com/' },
+    ]);
+    const issues = checkHreflang(result);
+    expect(issues.filter(i => i.code === 'hreflang_invalid_language')).toHaveLength(0);
+  });
+
+  it('still flags genuinely invalid language codes', () => {
+    const result = buildResult('https://example.com/', [
+      { lang: '@@invalid', href: 'https://example.com/' },
+      { lang: 'x-default', href: 'https://example.com/' },
+    ]);
+    const issues = checkHreflang(result);
+    expect(issues.filter(i => i.code === 'hreflang_invalid_language')).toHaveLength(1);
+  });
+
+  it('still flags 4-part BCP 47 tags (beyond language-script-region)', () => {
+    const result = buildResult('https://example.com/', [
+      { lang: 'zh-hant-tw-extra', href: 'https://example.com/' },
+      { lang: 'x-default', href: 'https://example.com/' },
+    ]);
+    const issues = checkHreflang(result);
+    expect(issues.filter(i => i.code === 'hreflang_invalid_language')).toHaveLength(1);
   });
 });

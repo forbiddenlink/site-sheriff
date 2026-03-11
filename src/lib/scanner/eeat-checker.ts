@@ -24,12 +24,14 @@ export interface EEATIssue {
  * Check for author attribution on article pages
  */
 function checkAuthorInfo(url: string, html: string, $: cheerio.CheerioAPI): EEATIssue[] {
-  // Detect if this is an article/blog page
-  const isArticle =
-    $('article').length > 0 ||
-    $('[itemtype*="Article"]').length > 0 ||
-    $('meta[property="og:type"][content="article"]').length > 0 ||
-    /\/blog\/|\/article\/|\/post\//i.test(url);
+  // Detect if this is an article/blog page.
+  // URL-pattern-only article detection. Metadata signals (og:type=article,
+  // article:published_time, [itemtype*="Article"]) all appear on non-article
+  // pages due to CMS misconfiguration or sidebar/footer article-list widgets.
+  // URL patterns are the only reliable, unambiguous signal:
+  //   /blog/, /article/, /post/, /news/ — explicit article paths
+  //   /YYYY/MM/ — WordPress-style date-based permalink
+  const isArticle = /\/blog\/|\/article\/|\/post\/|\/news\/|\/\d{4}\/\d{2}\//i.test(url);
 
   if (!isArticle) return [];
 
@@ -79,10 +81,8 @@ function checkAuthorInfo(url: string, html: string, $: cheerio.CheerioAPI): EEAT
  * Check for publication date on article pages
  */
 function checkPublicationDate(url: string, $: cheerio.CheerioAPI): EEATIssue[] {
-  const isArticle =
-    $('article').length > 0 ||
-    $('[itemtype*="Article"]').length > 0 ||
-    $('meta[property="og:type"][content="article"]').length > 0;
+  // Same URL-only detection as checkAuthorInfo.
+  const isArticle = /\/blog\/|\/article\/|\/post\/|\/news\/|\/\d{4}\/\d{2}\//i.test(url);
 
   if (!isArticle) return [];
 
@@ -550,9 +550,14 @@ export async function checkServiceWorker(
 function checkSchemaSuggestions(url: string, html: string, $: cheerio.CheerioAPI): EEATIssue[] {
   const issues: EEATIssue[] = [];
 
-  // Check for FAQ content without FAQ schema
-  const hasFAQContent = $('details, .faq, [class*="faq"], .accordion, [class*="question"]').length > 2 ||
-    (html.match(/\?\s*<\/h[2-4]>/gi) || []).length > 2;
+  // Check for FAQ content without FAQ schema.
+  // Avoid firing on <details> elements alone — they're used for nav dropdowns,
+  // disclosure widgets, etc. Require more specific FAQ signals:
+  //   - Explicit .faq or [class*="faq"] elements (>= 1), OR
+  //   - 3+ H2–H4 headings that end with a question mark
+  const hasExplicitFaqClass = $('.faq, [class*="faq"]').length > 0;
+  const questionHeadingCount = (html.match(/\?\s*<\/h[2-4]>/gi) || []).length;
+  const hasFAQContent = hasExplicitFaqClass || questionHeadingCount >= 3;
   const hasFAQSchema = /FAQPage/i.test(html);
 
   if (hasFAQContent && !hasFAQSchema) {
@@ -571,10 +576,16 @@ function checkSchemaSuggestions(url: string, html: string, $: cheerio.CheerioAPI
     });
   }
 
-  // Check for how-to content without HowTo schema
-  const hasHowToContent =
-    /how[\s-]?to/i.test($('h1, h2').text()) ||
-    $('[class*="step"], [class*="instruction"], ol.steps').length > 0;
+  // Check for how-to content without HowTo schema.
+  // A single heading containing "how to" (e.g. "How to contact us") is too weak
+  // a signal. Require multiple numbered steps (ordered list items or step-numbered
+  // headings) to confirm it's truly a how-to article.
+  const stepHeadingCount = $('h2, h3').toArray().filter((el) => /^step\s*\d/i.test($(el).text().trim())).length;
+  const hasOrderedSteps = $('ol').toArray().some((el) => $(el).find('li').length >= 3);
+  const hasHowToClass = $('[class*="step"][class*="instruction"], ol.steps').length > 0;
+  const hasHowToContent = stepHeadingCount >= 3 || hasHowToClass || (
+    hasOrderedSteps && /how[\s-]?to/i.test($('h1').text())
+  );
   const hasHowToSchema = /HowTo/i.test(html);
 
   if (hasHowToContent && !hasHowToSchema) {
@@ -593,8 +604,15 @@ function checkSchemaSuggestions(url: string, html: string, $: cheerio.CheerioAPI
     });
   }
 
-  // Check for review content without Review schema
-  const hasReviewContent = $('[class*="review"], [class*="rating"], .stars').length > 0;
+  // Check for review content without Review schema.
+  // Use word-boundary-style matching to avoid catching "overview", "peer-reviewer",
+  // "star-icon" etc. Require at least 2 matching elements OR a very specific signal.
+  const reviewElements = $(
+    '.review, .reviews, [class~="review"], [class~="reviews"], ' +
+    '[itemprop="review"], [itemprop="reviewRating"], ' +
+    '.star-rating, [class~="star-rating"], [data-rating]'
+  ).length;
+  const hasReviewContent = reviewElements >= 2;
   const hasReviewSchema = /Review|AggregateRating/i.test(html);
 
   if (hasReviewContent && !hasReviewSchema && !/$\/(product|shop)\//i.test(url)) {

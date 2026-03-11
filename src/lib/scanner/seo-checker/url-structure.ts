@@ -11,7 +11,13 @@ export function checkUrlStructure(result: CrawlResult): SEOIssue[] {
     const urlPath = new URL(result.url).pathname + new URL(result.url).search;
 
     // Check for uppercase characters in URL
-    if (/[A-Z]/.test(urlPath)) {
+    // Exempt BCP 47 locale code segments (e.g. en-US, zh-CN, hi-IN, es-419)
+    const urlSegments = urlPath.split('/');
+    const hasUppercaseOutsideLocale = urlSegments.some(seg => {
+      if (/^[a-z]{2,3}[-_][A-Z]{2,4}$/.test(seg)) return false; // locale code — skip
+      return /[A-Z]/.test(seg);
+    });
+    if (hasUppercaseOutsideLocale) {
       issues.push({
         code: 'url_uppercase',
         severity: 'P3',

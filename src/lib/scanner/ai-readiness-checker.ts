@@ -75,16 +75,15 @@ function checkFAQSchema($: cheerio.CheerioAPI, url: string): AIReadinessIssue[] 
     }
   });
 
-  // Check if page has FAQ-like content but no FAQ schema
-  const hasQuestionHeadings = $('h2, h3').toArray().some((el) => {
-    const text = $(el).text().toLowerCase();
-    return text.includes('?') ||
-           text.startsWith('how ') ||
-           text.startsWith('what ') ||
-           text.startsWith('why ') ||
-           text.startsWith('when ') ||
-           text.startsWith('faq');
+  // Check if page has FAQ-like content but no FAQ schema.
+  // A single heading starting with "how" or "what" is too weak — that's common on
+  // any marketing page ("How Stripe works", "What is X"). Require MULTIPLE question
+  // headings (>= 2) that end with '?' OR an explicit FAQ heading keyword.
+  const questionHeadings = $('h2, h3').toArray().filter((el) => {
+    const text = $(el).text().trim();
+    return text.endsWith('?') || /^\s*faq/i.test(text);
   });
+  const hasQuestionHeadings = questionHeadings.length >= 2;
 
   if (hasQuestionHeadings && !hasFAQ && !hasHowTo) {
     return [{
@@ -140,9 +139,8 @@ function checkAuthorshipSignals($: cheerio.CheerioAPI, url: string): AIReadiness
 
   const issues: AIReadinessIssue[] = [];
 
-  // Only check article-like pages (has article tag or significant content)
-  const isArticlePage = $('article').length > 0 ||
-                        $('meta[property="og:type"][content="article"]').length > 0;
+  // URL-pattern-only article detection (same rationale as eeat-checker.ts).
+  const isArticlePage = /\/blog\/|\/article\/|\/post\/|\/news\/|\/\d{4}\/\d{2}\//i.test(url);
 
   if (isArticlePage && !hasAuthor) {
     issues.push({
@@ -296,9 +294,8 @@ function checkContentFreshness($: cheerio.CheerioAPI, url: string): AIReadinessI
  * Detects: numbered lists, statistics, definitions, quotable statements.
  */
 function checkCitationFriendliness($: cheerio.CheerioAPI, url: string): AIReadinessIssue[] {
-  // Only check article-type pages with substantial content
-  const isArticlePage = $('article').length > 0 ||
-                        $('meta[property="og:type"][content="article"]').length > 0;
+  // Only check article-type pages with substantial content.
+  const isArticlePage = /\/blog\/|\/article\/|\/post\/|\/news\/|\/\d{4}\/\d{2}\//i.test(url);
 
   const paragraphs = $('article p, main p, .content p, [role="main"] p').toArray();
   const textContent = paragraphs.map(p => $(p).text()).join(' ');

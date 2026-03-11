@@ -333,10 +333,20 @@ export class Crawler {
     const startTime = Date.now();
 
     // Collect JS console errors
+    // Skip browser-level CSP/policy messages — these are config warnings, not JS runtime errors.
+    const BROWSER_MSG_PATTERNS = [
+      /Content Security Policy/i,
+      /\[Violation\]/i,
+      /upgrade-insecure-requests/i,
+      /report-only/i,
+    ];
     const consoleErrors: string[] = [];
     page.on('console', msg => {
       if (msg.type() === 'error') {
-        consoleErrors.push(msg.text().slice(0, 200));
+        const text = msg.text();
+        if (!BROWSER_MSG_PATTERNS.some(p => p.test(text))) {
+          consoleErrors.push(text.slice(0, 200));
+        }
       }
     });
 
@@ -456,9 +466,12 @@ export class Crawler {
     const bodyText = $('body').text().replaceAll(/\s+/g, ' ').trim();
     const wordCount = bodyText.split(' ').filter(Boolean).length;
 
-    // Extract all headings (h1-h6)
+    // Extract all headings (h1-h6), excluding those inside dialog contexts
+    // (dialogs use their own h1-relative heading hierarchy per ARIA practices)
+    // and aria-hidden sections (invisible to all users including screen readers).
     const headings: HeadingData[] = [];
     $('h1, h2, h3, h4, h5, h6').each((_, el) => {
+      if ($(el).closest('dialog, [role="dialog"], [role="alertdialog"], [aria-hidden="true"]').length) return;
       const tag = $(el).prop('tagName')?.toLowerCase() ?? '';
       const level = Number.parseInt(tag.replace('h', ''), 10);
       if (!Number.isNaN(level)) {
@@ -523,7 +536,8 @@ export class Crawler {
 
       links.push({
         href: resolved,
-        text: $(el).text().trim().slice(0, 100),
+        // Prefer aria-label (explicit accessible name), then image alt text, then visible text
+        text: ($(el).attr('aria-label') || $(el).attr('title') || $(el).find('img[alt]').first().attr('alt') || $(el).text()).trim().slice(0, 100),
         isInternal,
         sourceUrl: url,
       });

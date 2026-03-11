@@ -18,8 +18,8 @@ test.describe('Critical Scan Path', () => {
 
     // Verify key features are displayed
     await expect(page.getByText('Broken Links')).toBeVisible();
-    await expect(page.getByText('SEO')).toBeVisible();
-    await expect(page.getByText('Security')).toBeVisible();
+    await expect(page.getByText('SEO', { exact: true }).first()).toBeVisible();
+    await expect(page.getByText('Security', { exact: true }).first()).toBeVisible();
   });
 
   test('can enter URL and start scan', async ({ page }) => {

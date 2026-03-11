@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -77,6 +78,11 @@ export interface ScanData {
     score: number;
     createdAt: string;
   } | null;
+  scoreHistory?: Array<{
+    id: string;
+    score: number;
+    createdAt: string;
+  }> | null;
   error?: string;
   clientEmailDraft?: string | null;
   createdAt: string;
@@ -93,7 +99,7 @@ export interface ScanResultsViewProps {
 // Small Reusable Components
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function ScoreRing({ score, size = 120 }: { score: number; size?: number }) {
+export function ScoreRing({ score, size = 120 }: Readonly<{ score: number; size?: number }>) {
   const strokeWidth = 8;
   const radius = (size - strokeWidth) / 2;
   const circumference = radius * 2 * Math.PI;
@@ -180,7 +186,7 @@ export function ScoreRing({ score, size = 120 }: { score: number; size?: number 
   );
 }
 
-export function CategoryScoreBar({ cat, score, barColor, bgGlow }: { cat: string; score: number; barColor: string; bgGlow: string }) {
+export function CategoryScoreBar({ cat, score, barColor, bgGlow }: Readonly<{ cat: string; score: number; barColor: string; bgGlow: string }>) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => {
     requestAnimationFrame(() => setMounted(true));
@@ -204,7 +210,7 @@ export function CategoryScoreBar({ cat, score, barColor, bgGlow }: { cat: string
   );
 }
 
-export function SeverityBadge({ severity }: { severity: string }) {
+export function SeverityBadge({ severity }: Readonly<{ severity: string }>) {
   const styles: Record<string, string> = {
     P0: 'bg-red-500/10 text-red-500 border-red-500/20',
     P1: 'bg-orange-500/10 text-orange-500 border-orange-500/20',
@@ -223,7 +229,7 @@ export function SeverityBadge({ severity }: { severity: string }) {
   );
 }
 
-export function CategoryBadge({ category }: { category: string }) {
+export function CategoryBadge({ category }: Readonly<{ category: string }>) {
   const styles: Record<string, string> = {
     SEO: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
     SECURITY: 'bg-rose-500/10 text-rose-400 border-rose-500/20',
@@ -250,7 +256,7 @@ export function getEffortLabel(effort: number): string {
   return 'Hard';
 }
 
-export function EffortBadge({ effort }: { effort: number | null }) {
+export function EffortBadge({ effort }: Readonly<{ effort: number | null }>) {
   if (effort === null) return null;
   const label = getEffortLabel(effort);
   const styles: Record<string, string> = {
@@ -266,6 +272,145 @@ export function EffortBadge({ effort }: { effort: number | null }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Score Sparkline — pure SVG, no chart library needed
+// ─────────────────────────────────────────────────────────────────────────────
+
+function ScoreSparkline({ history }: { readonly history: ReadonlyArray<{ readonly id: string; readonly score: number; readonly createdAt: string }> }) {
+  if (history.length < 2) return null;
+
+  const W = 200;
+  const H = 60;
+  const PAD = 8;
+  const plotW = W - PAD * 2;
+  const plotH = H - PAD * 2;
+
+  const scores = history.map((h) => h.score);
+  const minScore = Math.max(0, Math.min(...scores) - 5);
+  const maxScore = Math.min(100, Math.max(...scores) + 5);
+  const range = maxScore - minScore || 1;
+
+  const px = (i: number) => PAD + (i / (history.length - 1)) * plotW;
+  const py = (s: number) => PAD + plotH - ((s - minScore) / range) * plotH;
+
+  const lastScore = scores.at(-1) ?? 0;
+  let lineColor = '#f87171';
+  if (lastScore >= 80) lineColor = '#34d399';
+  else if (lastScore >= 50) lineColor = '#fbbf24';
+
+  const linePath = history.map((h, i) => `${i === 0 ? 'M' : 'L'} ${px(i).toFixed(1)},${py(h.score).toFixed(1)}`).join(' ');
+  const areaPath = `${linePath} L ${px(history.length - 1).toFixed(1)},${H} L ${PAD},${H} Z`;
+  const gradId = `sg_${history.at(-1)!.id.slice(0, 8)}`;
+
+  return (
+    <div className="mt-5 w-full">
+      <p className="text-[10px] text-slate-500 uppercase tracking-widest mb-2 text-center">Score Trend</p>
+      <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} className="mx-auto overflow-visible">
+        <defs>
+          <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={lineColor} stopOpacity="0.18" />
+            <stop offset="100%" stopColor={lineColor} stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        {[25, 50, 75].map((v) => {
+          const gy = py(v);
+          if (gy < PAD || gy > H - PAD) return null;
+          return <line key={v} x1={PAD} y1={gy} x2={W - PAD} y2={gy} stroke="rgba(255,255,255,0.04)" strokeWidth="1" />;
+        })}
+        <path d={areaPath} fill={`url(#${gradId})`} />
+        <path d={linePath} fill="none" stroke={lineColor} strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
+        {history.map((h, i) => {
+          const isLast = i === history.length - 1;
+          return (
+            <g key={h.id}>
+              <title>{new Date(h.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} — {h.score}</title>
+              <circle
+                cx={px(i)}
+                cy={py(h.score)}
+                r={isLast ? 3.5 : 2.5}
+                fill={isLast ? lineColor : 'rgba(255,255,255,0.25)'}
+                stroke={lineColor}
+                strokeWidth={isLast ? 0 : 1}
+              />
+            </g>
+          );
+        })}
+      </svg>
+      <p className="text-[10px] text-slate-600 text-center mt-1">{history.length} scan{history.length === 1 ? '' : 's'}</p>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Helpers for ScanResultsView
+// ─────────────────────────────────────────────────────────────────────────────
+
+function getCatBarColor(score: number): string {
+  if (score >= 80) return 'from-emerald-500 to-emerald-400';
+  if (score >= 50) return 'from-amber-500 to-amber-400';
+  return 'from-red-500 to-red-400';
+}
+
+function getCatBgGlow(score: number): string {
+  if (score >= 80) return 'shadow-emerald-500/20';
+  if (score >= 50) return 'shadow-amber-500/20';
+  return 'shadow-red-500/20';
+}
+
+function getSeverityActiveClass(sev: string): string {
+  if (sev === 'P1') return 'bg-red-500/20 text-red-300 ring-1 ring-red-500/30';
+  if (sev === 'P2') return 'bg-yellow-500/20 text-yellow-300 ring-1 ring-yellow-500/30';
+  return 'bg-blue-500/20 text-blue-300 ring-1 ring-blue-500/30';
+}
+
+function getSeverityLabel(sev: string): string {
+  if (sev === 'all') return 'All Severities';
+  if (sev === 'P1') return '🔴 Critical';
+  if (sev === 'P2') return '🟡 Warning';
+  return '🔵 Info';
+}
+
+function getShareButtonLabel(copied: boolean, loading: boolean): string {
+  if (copied) return 'Copied!';
+  if (loading) return 'Creating link...';
+  return 'Share Report';
+}
+
+function formatDisplayValue(value: unknown): string {
+  if (typeof value === 'object' && value !== null) return JSON.stringify(value, null, 2);
+  return String(value);
+}
+
+function buildIssueMarkdownLines(issue: {
+  severity: string;
+  title: string;
+  whyItMatters?: string | null;
+  howToFix?: string | null;
+  evidence?: Record<string, unknown> | null;
+}): string[] {
+  const lines: string[] = [`### [${issue.severity}] ${issue.title}`];
+  if (issue.whyItMatters) lines.push(`> ${issue.whyItMatters}`);
+  if (issue.howToFix) lines.push(`\n**Fix:** ${issue.howToFix}`);
+  if (issue.evidence?.url) {
+    const url = typeof issue.evidence.url === 'string' ? issue.evidence.url : JSON.stringify(issue.evidence.url);
+    lines.push(`\n**Page:** ${url}`);
+  }
+  lines.push('');
+  return lines;
+}
+
+function compareIssues(
+  a: { severity: string; category: string },
+  b: { severity: string; category: string },
+  sortBy: string,
+): number {
+  const order = { P0: 0, P1: 1, P2: 2, P3: 3 };
+  if (sortBy === 'severity') {
+    return (order[a.severity as keyof typeof order] ?? 4) - (order[b.severity as keyof typeof order] ?? 4);
+  }
+  return a.category.localeCompare(b.category);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Main Scan Results View
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -274,7 +419,8 @@ export function ScanResultsView({
   error,
   variant = 'full',
   renderCrawlMap,
-}: ScanResultsViewProps) {
+}: Readonly<ScanResultsViewProps>) {
+  const router = useRouter();
   const [expandedIssues, setExpandedIssues] = useState<Set<string>>(new Set());
   const [expandedScreenshot, setExpandedScreenshot] = useState<string | null>(null);
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
@@ -287,6 +433,8 @@ export function ScanResultsView({
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [selectedSeverity, setSelectedSeverity] = useState<string>('all');
   const [groupByPage, setGroupByPage] = useState(false);
+  const [rescanLoading, setRescanLoading] = useState(false);
+  const [markdownCopied, setMarkdownCopied] = useState(false);
 
   const isFull = variant === 'full';
 
@@ -295,13 +443,7 @@ export function ScanResultsView({
     if (!data?.issues) return [];
     return [...data.issues]
       .filter((i) => !activeCategory || i.category === activeCategory)
-      .sort((a, b) => {
-        if (sortBy === 'severity') {
-          const order = { P0: 0, P1: 1, P2: 2, P3: 3 };
-          return (order[a.severity as keyof typeof order] ?? 4) - (order[b.severity as keyof typeof order] ?? 4);
-        }
-        return a.category.localeCompare(b.category);
-      });
+      .sort((a, b) => compareIssues(a, b, sortBy));
   }, [data?.issues, activeCategory, sortBy]);
 
   const filteredIssues = useMemo(() => {
@@ -375,6 +517,53 @@ export function ScanResultsView({
       setExpandedIssues(new Set(data.issues.map((i) => i.id)));
     }
     setTimeout(() => globalThis.print(), 100);
+  };
+
+  const handleRescan = async () => {
+    if (!data || rescanLoading) return;
+    setRescanLoading(true);
+    try {
+      const res = await fetch('/api/scan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: data.inputUrl, settings: data.settings ?? {} }),
+      });
+      if (!res.ok) throw new Error('Failed to start scan');
+      const { id } = await res.json();
+      router.push(`/scan/${id}`);
+    } catch {
+      setRescanLoading(false);
+    }
+  };
+
+  const handleCopyMarkdown = async () => {
+    if (!data) return;
+    const sevOrder: Record<string, number> = { P0: 0, P1: 1, P2: 2, P3: 3 };
+    const sorted = [...data.issues].sort(
+      (a, b) => (sevOrder[a.severity] ?? 4) - (sevOrder[b.severity] ?? 4)
+    );
+    const lines: string[] = [
+      `# Site Sheriff Audit — ${data.inputUrl}`,
+      `Score: **${data.summary?.overallScore ?? 'N/A'}/100**  |  Issues: ${data.issues.length}  |  Scanned: ${new Date(data.createdAt).toLocaleDateString()}`,
+      '',
+      '---',
+      '',
+    ];
+    const groups: Record<string, typeof sorted> = {};
+    for (const issue of sorted) {
+      const cat = issue.category;
+      if (!groups[cat]) groups[cat] = [];
+      groups[cat].push(issue);
+    }
+    for (const [cat, issues] of Object.entries(groups)) {
+      lines.push(`## ${cat}`, '');
+      for (const issue of issues) {
+        lines.push(...buildIssueMarkdownLines(issue));
+      }
+    }
+    await navigator.clipboard.writeText(lines.join('\n'));
+    setMarkdownCopied(true);
+    setTimeout(() => setMarkdownCopied(false), 2000);
   };
 
   // ── Error state ────────────────────────────────────────────────────────────
@@ -482,7 +671,26 @@ export function ScanResultsView({
           </div>
 
           {isFull && isComplete && (
-            <div className="no-print print:hidden flex items-center gap-3">
+            <div className="no-print print:hidden flex items-center gap-3 flex-wrap">
+              <button
+                onClick={handleRescan}
+                disabled={rescanLoading}
+                className="px-5 py-2.5 rounded-xl bg-white/4 border border-white/8 text-slate-300 hover:bg-white/8 hover:text-white transition-all text-sm font-medium backdrop-blur-md active:scale-95 disabled:opacity-50 flex items-center gap-2"
+              >
+                {rescanLoading ? (
+                  <>
+                    <span className="w-3 h-3 rounded-full border-2 border-slate-400 border-t-transparent animate-spin" />
+                    <span>Starting...</span>
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    Re-scan
+                  </>
+                )}
+              </button>
               <button
                 onClick={handleDownloadPDF}
                 className="px-5 py-2.5 rounded-xl bg-white/4 border border-white/8 text-slate-300 hover:bg-white/8 hover:text-white transition-all text-sm font-medium backdrop-blur-md active:scale-95"
@@ -500,7 +708,7 @@ export function ScanResultsView({
                   </svg>
                 </button>
                 {showExportMenu && (
-                  <div className="absolute right-0 mt-2 w-40 bg-[#0a0f1a] border border-white/10 rounded-xl shadow-2xl overflow-hidden z-50">
+                  <div className="absolute right-0 mt-2 w-48 bg-[#0a0f1a] border border-white/10 rounded-xl shadow-2xl overflow-hidden z-50">
                     <button
                       onClick={() => handleExport('csv')}
                       className="w-full text-left px-4 py-3 text-sm text-slate-300 hover:bg-white/6 hover:text-white transition-colors"
@@ -513,6 +721,12 @@ export function ScanResultsView({
                     >
                       Download JSON
                     </button>
+                    <button
+                      onClick={handleCopyMarkdown}
+                      className="w-full text-left px-4 py-3 text-sm text-slate-300 hover:bg-white/6 hover:text-white transition-colors border-t border-white/6"
+                    >
+                      {markdownCopied ? '✓ Copied!' : 'Copy as Markdown'}
+                    </button>
                   </div>
                 )}
               </div>
@@ -521,7 +735,7 @@ export function ScanResultsView({
                 disabled={shareLoading}
                 className="px-5 py-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20 hover:text-emerald-300 transition-all text-sm font-medium backdrop-blur-md active:scale-95 disabled:opacity-50"
               >
-                {copied ? 'Copied!' : shareLoading ? 'Creating link...' : 'Share Report'}
+                {getShareButtonLabel(copied, shareLoading)}
               </button>
             </div>
           )}
@@ -622,7 +836,7 @@ export function ScanResultsView({
                  {isFull && data.previousScan && (
                    <div className="mt-4 flex items-center gap-2">
                      {(() => {
-                       const delta = data.summary!.overallScore - data.previousScan!.score;
+                       const delta = data.summary.overallScore - data.previousScan.score;
                        if (delta > 0) return (
                          <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
                            ↑ {delta} pts
@@ -640,12 +854,15 @@ export function ScanResultsView({
                        );
                      })()}
                      <Link
-                       href={`/scans/compare?a=${data.previousScan!.id}&b=${data.id}`}
+                       href={`/scans/compare?a=${data.previousScan.id}&b=${data.id}`}
                        className="text-[10px] text-emerald-400 hover:underline"
                      >
                        Compare →
                      </Link>
                    </div>
+                 )}
+                 {isFull && data.scoreHistory && data.scoreHistory.length >= 2 && (
+                   <ScoreSparkline history={data.scoreHistory} />
                  )}
               </div>
               
@@ -658,18 +875,8 @@ export function ScanResultsView({
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-6">
                       {Object.entries(data.summary.categoryScores).map(
                         ([cat, catScore]) => {
-                          const barColor =
-                            catScore >= 80
-                              ? 'from-emerald-500 to-emerald-400'
-                              : catScore >= 50
-                                ? 'from-amber-500 to-amber-400'
-                                : 'from-red-500 to-red-400';
-                          const bgGlow =
-                            catScore >= 80
-                              ? 'shadow-emerald-500/20'
-                              : catScore >= 50
-                                ? 'shadow-amber-500/20'
-                                : 'shadow-red-500/20';
+                          const barColor = getCatBarColor(catScore);
+                          const bgGlow = getCatBgGlow(catScore);
                           return (
                             <CategoryScoreBar key={cat} cat={cat} score={catScore} barColor={barColor} bgGlow={bgGlow} />
                           );
@@ -723,7 +930,7 @@ export function ScanResultsView({
                         >
                           {/* Tooltip */}
                           <div className="absolute -top-10 left-1/2 -translate-x-1/2 px-2.5 py-1 rounded-lg bg-[#0a0f1a] border border-white/10 text-[10px] font-bold text-white opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap shadow-xl z-10">
-                            {s.key}: {s.count} issue{s.count !== 1 ? 's' : ''}
+                            {s.key}: {s.count} issue{s.count === 1 ? '' : 's'}
                           </div>
                           {pct > 8 && (
                             <span className="absolute inset-0 flex items-center justify-center text-[10px] font-bold text-white/90">
@@ -1035,20 +1242,17 @@ export function ScanResultsView({
                     onClick={() => setSelectedSeverity(sev)}
                     className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
                       selectedSeverity === sev
-                        ? sev === 'P1' ? 'bg-red-500/20 text-red-300 ring-1 ring-red-500/30'
-                          : sev === 'P2' ? 'bg-yellow-500/20 text-yellow-300 ring-1 ring-yellow-500/30'
-                          : sev === 'P3' ? 'bg-blue-500/20 text-blue-300 ring-1 ring-blue-500/30'
-                          : 'bg-blue-500/20 text-blue-300 ring-1 ring-blue-500/30'
+                        ? getSeverityActiveClass(sev)
                         : 'bg-white/5 text-gray-400 hover:bg-white/10 hover:text-gray-300'
                     }`}
                   >
-                    {sev === 'all' ? 'All Severities' : sev === 'P1' ? '🔴 Critical' : sev === 'P2' ? '🟡 Warning' : '🔵 Info'}
+                    {getSeverityLabel(sev)}
                   </button>
                 ))}
                 {/* Group by page toggle */}
                 <button
                   onClick={() => setGroupByPage(!groupByPage)}
-                  aria-pressed={groupByPage}
+                  aria-pressed={groupByPage ? 'true' : 'false'}
                   aria-label={groupByPage ? 'Switch to flat list view' : 'Switch to grouped by page view'}
                   className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
                     groupByPage ? 'bg-purple-500/20 text-purple-300 ring-1 ring-purple-500/30' : 'bg-white/5 text-gray-400 hover:bg-white/10'
@@ -1240,7 +1444,7 @@ export function ScanResultsView({
                                   {Object.entries(issue.evidence).map(([key, value]) => {
                                     if (value === null || value === undefined) return null;
                                     // Only allow http/https URLs to prevent XSS via javascript: or data: protocols
-                                    const isSafeUrl = (v: unknown): boolean => typeof v === 'string' && /^https?:\/\//i.test(v);
+                                    const isSafeUrl = (v: unknown): v is string => typeof v === 'string' && /^https?:\/\//i.test(v);
                                     const isUrl = isSafeUrl(value);
                                     // Render arrays of URLs as individual clickable links
                                     if (Array.isArray(value) && value.every(isSafeUrl)) {
@@ -1248,8 +1452,8 @@ export function ScanResultsView({
                                         <div key={key}>
                                           <span className="text-slate-500 shrink-0">{key}:</span>
                                           <div className="ml-4 mt-1 space-y-1">
-                                            {(value as string[]).map((url: string, i: number) => (
-                                              <a key={i} href={url} target="_blank" rel="noopener noreferrer" className="block text-emerald-400 hover:text-emerald-300 underline underline-offset-2 break-all transition-colors">
+                                            {value.map((url: string) => (
+                                              <a key={url} href={url} target="_blank" rel="noopener noreferrer" className="block text-emerald-400 hover:text-emerald-300 underline underline-offset-2 break-all transition-colors">
                                                 {url}
                                               </a>
                                             ))}
@@ -1257,12 +1461,12 @@ export function ScanResultsView({
                                         </div>
                                       );
                                     }
-                                    const display = typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value);
+                                    const display = formatDisplayValue(value);
                                     return (
                                       <div key={key} className="flex gap-3">
                                         <span className="text-slate-500 shrink-0">{key}:</span>
                                         {isUrl ? (
-                                          <a href={String(value)} target="_blank" rel="noopener noreferrer" className="text-emerald-400 hover:text-emerald-300 underline underline-offset-2 break-all transition-colors">
+                                          <a href={value} target="_blank" rel="noopener noreferrer" className="text-emerald-400 hover:text-emerald-300 underline underline-offset-2 break-all transition-colors">
                                             {display}
                                           </a>
                                         ) : (
