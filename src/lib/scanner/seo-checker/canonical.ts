@@ -78,30 +78,8 @@ export async function validateCanonicals(results: CrawlResult[]): Promise<SEOIss
   for (const [canonicalUrl, pages] of canonicalToPages) {
     const pageUrl = pages[0];
 
-    // Check for cross-domain canonical
-    // Exempt www. <-> non-www. difference (intentional canonical preference, not a misconfiguration)
-    try {
-      const pageDomain = new URL(pageUrl).hostname;
-      const canonicalDomain = new URL(canonicalUrl).hostname;
-      const normalizeWww = (h: string) => h.replace(/^www\./, '');
-      if (canonicalDomain !== pageDomain && normalizeWww(canonicalDomain) !== normalizeWww(pageDomain)) {
-        issues.push({
-          code: 'canonical_cross_domain',
-          severity: 'P2',
-          category: 'SEO',
-          title: 'Cross-domain canonical URL',
-          whyItMatters:
-            'A canonical pointing to a different domain tells search engines this page is a copy of content on another site. This may be intentional (syndication) but is often a misconfiguration that gives away your ranking credit.',
-          howToFix:
-            'Verify this is intentional. If not, update the canonical to point to your own domain.',
-          evidence: { url: pageUrl, actual: canonicalUrl, expected: pageDomain, snippet: `Page domain: ${pageDomain}, Canonical domain: ${canonicalDomain}` },
-          impact: 4,
-          effort: 1,
-        });
-      }
-    } catch {
-      // Invalid URL — skip cross-domain check
-    }
+    // Cross-domain canonical is already checked per-page in checkCanonical().
+    // Only validate URL resolution here to avoid duplicate issues.
 
     // Verify canonical URL resolves
     try {

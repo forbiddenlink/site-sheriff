@@ -132,15 +132,20 @@ export function checkRobotsMeta(result: CrawlResult): SEOIssue[] {
   const issues: SEOIssue[] = [];
 
   if (result.robotsMeta?.toLowerCase().includes('noindex')) {
+    // Search result pages, login pages, and other utility pages commonly use noindex
+    // intentionally. Downgrade these to P2 (informational) instead of P0.
+    const isIntentionalNoindex = /[?&](search|q|query|s)=|\/(search|login|signin|signup|register|auth|preview|draft)\b/i.test(result.url);
     issues.push({
       code: 'page_noindex',
-      severity: 'P0',
+      severity: isIntentionalNoindex ? 'P2' : 'P0',
       category: 'SEO',
       title: 'Page is set to noindex',
-      whyItMatters: 'This page will not appear in search results. If this is intentional, you can ignore this. If not, fix immediately.',
+      whyItMatters: isIntentionalNoindex
+        ? 'This page has noindex set, which is likely intentional for search/utility pages. Verify this is expected.'
+        : 'This page will not appear in search results. If this is intentional, you can ignore this. If not, fix immediately.',
       howToFix: 'Remove "noindex" from the robots meta tag if you want this page indexed.',
       evidence: { url: result.url, actual: result.robotsMeta },
-      impact: 5,
+      impact: isIntentionalNoindex ? 2 : 5,
       effort: 1,
     });
   }

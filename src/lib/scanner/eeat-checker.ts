@@ -31,7 +31,11 @@ function checkAuthorInfo(url: string, html: string, $: cheerio.CheerioAPI): EEAT
   // URL patterns are the only reliable, unambiguous signal:
   //   /blog/, /article/, /post/, /news/ — explicit article paths
   //   /YYYY/MM/ — WordPress-style date-based permalink
-  const isArticle = /\/blog\/|\/article\/|\/post\/|\/news\/|\/\d{4}\/\d{2}\//i.test(url);
+  // Exclude listing/index-style paths: /news/, /news/recently-published/, /blog/topics/*
+  // These are category/hub pages, not individual articles.
+  const isArticle = /\/blog\/|\/article\/|\/post\/|\/news\/|\/\d{4}\/\d{2}\//i.test(url)
+    && !/\/(news|blog|articles?)\/?$/i.test(new URL(url).pathname)
+    && !/\/(topics|categories|tags|recently-published|media-contacts)\//i.test(url);
 
   if (!isArticle) return [];
 
@@ -82,7 +86,9 @@ function checkAuthorInfo(url: string, html: string, $: cheerio.CheerioAPI): EEAT
  */
 function checkPublicationDate(url: string, $: cheerio.CheerioAPI): EEATIssue[] {
   // Same URL-only detection as checkAuthorInfo.
-  const isArticle = /\/blog\/|\/article\/|\/post\/|\/news\/|\/\d{4}\/\d{2}\//i.test(url);
+  const isArticle = /\/blog\/|\/article\/|\/post\/|\/news\/|\/\d{4}\/\d{2}\//i.test(url)
+    && !/\/(news|blog|articles?)\/?$/i.test(new URL(url).pathname)
+    && !/\/(topics|categories|tags|recently-published|media-contacts)\//i.test(url);
 
   if (!isArticle) return [];
 

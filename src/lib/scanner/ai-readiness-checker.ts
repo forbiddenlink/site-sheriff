@@ -76,14 +76,15 @@ function checkFAQSchema($: cheerio.CheerioAPI, url: string): AIReadinessIssue[] 
   });
 
   // Check if page has FAQ-like content but no FAQ schema.
-  // A single heading starting with "how" or "what" is too weak — that's common on
-  // any marketing page ("How Stripe works", "What is X"). Require MULTIPLE question
-  // headings (>= 2) that end with '?' OR an explicit FAQ heading keyword.
+  // Marketing pages commonly have 2 question headings ("What is X?" "How does it work?")
+  // without being actual FAQ pages. Require >= 3 question headings to confidently
+  // identify FAQ-style content, OR an explicit "FAQ" heading.
   const questionHeadings = $('h2, h3').toArray().filter((el) => {
     const text = $(el).text().trim();
     return text.endsWith('?') || /^\s*faq/i.test(text);
   });
-  const hasQuestionHeadings = questionHeadings.length >= 2;
+  const hasExplicitFaq = questionHeadings.some((el) => /^\s*faq/i.test($(el).text().trim()));
+  const hasQuestionHeadings = questionHeadings.length >= 3 || (hasExplicitFaq && questionHeadings.length >= 1);
 
   if (hasQuestionHeadings && !hasFAQ && !hasHowTo) {
     return [{
@@ -140,7 +141,10 @@ function checkAuthorshipSignals($: cheerio.CheerioAPI, url: string): AIReadiness
   const issues: AIReadinessIssue[] = [];
 
   // URL-pattern-only article detection (same rationale as eeat-checker.ts).
-  const isArticlePage = /\/blog\/|\/article\/|\/post\/|\/news\/|\/\d{4}\/\d{2}\//i.test(url);
+  // Exclude listing/index pages that match broadly (e.g. /news/, /blog/topics/*).
+  const isArticlePage = /\/blog\/|\/article\/|\/post\/|\/news\/|\/\d{4}\/\d{2}\//i.test(url)
+    && !/\/(news|blog|articles?)\/?$/i.test(new URL(url).pathname)
+    && !/\/(topics|categories|tags|recently-published|media-contacts)\//i.test(url);
 
   if (isArticlePage && !hasAuthor) {
     issues.push({

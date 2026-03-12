@@ -319,9 +319,16 @@ function checkKeywordStuffing(url: string, html: string): ContentIssue[] {
   try {
     const parsed = new URL(url);
     // Hostname: "smashing-magazine.com" → {"smashing", "magazine"}
+    // Also extract common brand substrings from compound domains like "tailwindcss" → "tailwind"
     const hostname = parsed.hostname.replace(/^www\./, '');
     for (const part of hostname.split(/[.\-]/)) {
-      if (part.length > 2) brandWords.add(part.toLowerCase());
+      if (part.length > 2) {
+        brandWords.add(part.toLowerCase());
+        // For compound TLD-adjacent segments (e.g. "tailwindcss", "nextjs"),
+        // strip common suffixes so the core brand name isn't flagged.
+        const stripped = part.toLowerCase().replace(/(css|js|dev|app|io|hq|ai|ml)$/, '');
+        if (stripped.length >= 3 && stripped !== part.toLowerCase()) brandWords.add(stripped);
+      }
     }
     // Path segments: "/authorization-boost/features" → {"authorization", "boost", "features"}
     // Also add de-pluraled (strip trailing 's') of each segment so that a URL like
