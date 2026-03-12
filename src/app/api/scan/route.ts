@@ -183,15 +183,14 @@ export async function GET(request: NextRequest) {
       ? `${lastItem.createdAt}_${lastItem.id}`
       : null;
 
-    // Transform to reduce payload size - only include score from summary
+    // Transform to reduce payload size
     const transformedScans = results.map((scan) => ({
       id: scan.id,
       status: scan.status,
       inputUrl: scan.inputUrl,
       normalizedUrl: scan.normalizedUrl,
       progress: scan.progress,
-      overallScore: scan.summary?.overallScore ?? null,
-      issueCount: scan.summary?.issueCount ?? null,
+      summary: scan.summary ?? null,
       createdAt: scan.createdAt,
       error: scan.error,
     }));

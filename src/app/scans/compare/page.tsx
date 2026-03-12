@@ -22,9 +22,18 @@ interface ComparisonScan {
   createdAt: string;
 }
 
+interface IssueRow {
+  code: string;
+  title: string;
+  severity: string;
+  category: string;
+}
+
 interface CompareData {
   scanA: ComparisonScan;
   scanB: ComparisonScan;
+  issuesA: IssueRow[];
+  issuesB: IssueRow[];
 }
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -178,6 +187,24 @@ function CompareContent() {
 
   const allSeverities = ['P0', 'P1', 'P2', 'P3'];
 
+  const issuesA = data.issuesA ?? [];
+  const issuesB = data.issuesB ?? [];
+
+  // Build code->issue maps (use first occurrence per code)
+  const mapA = new Map<string, IssueRow>();
+  for (const issue of issuesA) {
+    if (!mapA.has(issue.code)) mapA.set(issue.code, issue);
+  }
+  const mapB = new Map<string, IssueRow>();
+  for (const issue of issuesB) {
+    if (!mapB.has(issue.code)) mapB.set(issue.code, issue);
+  }
+
+  // Diff
+  const fixedIssues = [...mapA.values()].filter(i => !mapB.has(i.code));
+  const newIssues = [...mapB.values()].filter(i => !mapA.has(i.code));
+  const persistentIssues = [...mapA.values()].filter(i => mapB.has(i.code));
+
   return (
     <div className="min-h-screen bg-[#030712]">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
@@ -272,6 +299,57 @@ function CompareContent() {
           </div>
         </div>
 
+        {/* Top Issues Comparison */}
+        {(summA.topIssues?.length || summB.topIssues?.length) && (
+          <div className="bg-white/2 border border-white/6 backdrop-blur-md rounded-3xl p-8 mb-6">
+            <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-6">
+              Top Issues
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Scan A top issues */}
+              <div>
+                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3">Scan A</p>
+                <div className="space-y-1.5">
+                  {(summA.topIssues ?? []).slice(0, 5).map((issue) => (
+                    <div key={issue.code} className="flex items-center justify-between px-3 py-2 rounded-lg bg-white/2">
+                      <span className="text-xs text-slate-300 truncate flex-1">{issue.title}</span>
+                      <div className="flex items-center gap-2 shrink-0 ml-2">
+                        <span className={`text-[10px] font-bold ${SEVERITY_LABELS[issue.severity]?.color ?? 'text-slate-400'}`}>
+                          {issue.severity}
+                        </span>
+                        <span className="text-xs text-slate-500">&times;{issue.count}</span>
+                      </div>
+                    </div>
+                  ))}
+                  {(!summA.topIssues || summA.topIssues.length === 0) && (
+                    <p className="text-xs text-slate-600">No issues recorded</p>
+                  )}
+                </div>
+              </div>
+              {/* Scan B top issues */}
+              <div>
+                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3">Scan B</p>
+                <div className="space-y-1.5">
+                  {(summB.topIssues ?? []).slice(0, 5).map((issue) => (
+                    <div key={issue.code} className="flex items-center justify-between px-3 py-2 rounded-lg bg-white/2">
+                      <span className="text-xs text-slate-300 truncate flex-1">{issue.title}</span>
+                      <div className="flex items-center gap-2 shrink-0 ml-2">
+                        <span className={`text-[10px] font-bold ${SEVERITY_LABELS[issue.severity]?.color ?? 'text-slate-400'}`}>
+                          {issue.severity}
+                        </span>
+                        <span className="text-xs text-slate-500">&times;{issue.count}</span>
+                      </div>
+                    </div>
+                  ))}
+                  {(!summB.topIssues || summB.topIssues.length === 0) && (
+                    <p className="text-xs text-slate-600">No issues recorded</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Issue Counts */}
         <div className="bg-white/2 border border-white/6 backdrop-blur-md rounded-3xl p-8 mb-6">
           <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-6">
@@ -309,6 +387,89 @@ function CompareContent() {
             })}
           </div>
         </div>
+
+        {/* Issue Diff */}
+        {(fixedIssues.length > 0 || newIssues.length > 0 || persistentIssues.length > 0) && (
+          <div className="bg-white/2 border border-white/6 backdrop-blur-md rounded-3xl p-8 mb-6">
+            <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-6">
+              Issue Changes
+            </h2>
+
+            {/* Fixed Issues */}
+            {fixedIssues.length > 0 && (
+              <div className="mb-6">
+                <div className="flex items-center gap-2 mb-3">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                  <h3 className="text-sm font-bold text-emerald-400">
+                    Fixed ({fixedIssues.length})
+                  </h3>
+                </div>
+                <div className="space-y-1.5">
+                  {fixedIssues.map((issue) => (
+                    <div key={issue.code} className="flex items-center gap-3 px-4 py-2 rounded-xl bg-emerald-500/5 border border-emerald-500/10">
+                      <span className={`text-[10px] font-bold uppercase tracking-wider ${SEVERITY_LABELS[issue.severity]?.color ?? 'text-slate-400'}`}>
+                        {issue.severity}
+                      </span>
+                      <span className="text-sm text-slate-300 flex-1">{issue.title}</span>
+                      <span className="text-[10px] text-slate-500 uppercase">{issue.category}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* New Issues */}
+            {newIssues.length > 0 && (
+              <div className="mb-6">
+                <div className="flex items-center gap-2 mb-3">
+                  <span className="w-2 h-2 rounded-full bg-red-400" />
+                  <h3 className="text-sm font-bold text-red-400">
+                    New ({newIssues.length})
+                  </h3>
+                </div>
+                <div className="space-y-1.5">
+                  {newIssues.map((issue) => (
+                    <div key={issue.code} className="flex items-center gap-3 px-4 py-2 rounded-xl bg-red-500/5 border border-red-500/10">
+                      <span className={`text-[10px] font-bold uppercase tracking-wider ${SEVERITY_LABELS[issue.severity]?.color ?? 'text-slate-400'}`}>
+                        {issue.severity}
+                      </span>
+                      <span className="text-sm text-slate-300 flex-1">{issue.title}</span>
+                      <span className="text-[10px] text-slate-500 uppercase">{issue.category}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Persistent Issues */}
+            {persistentIssues.length > 0 && (
+              <div>
+                <div className="flex items-center gap-2 mb-3">
+                  <span className="w-2 h-2 rounded-full bg-slate-500" />
+                  <h3 className="text-sm font-bold text-slate-400">
+                    Unchanged ({persistentIssues.length})
+                  </h3>
+                </div>
+                <div className="space-y-1.5">
+                  {persistentIssues.slice(0, 10).map((issue) => (
+                    <div key={issue.code} className="flex items-center gap-3 px-4 py-2 rounded-xl bg-white/2 border border-white/4">
+                      <span className={`text-[10px] font-bold uppercase tracking-wider ${SEVERITY_LABELS[issue.severity]?.color ?? 'text-slate-400'}`}>
+                        {issue.severity}
+                      </span>
+                      <span className="text-sm text-slate-300 flex-1">{issue.title}</span>
+                      <span className="text-[10px] text-slate-500 uppercase">{issue.category}</span>
+                    </div>
+                  ))}
+                  {persistentIssues.length > 10 && (
+                    <p className="text-xs text-slate-600 text-center pt-2">
+                      +{persistentIssues.length - 10} more unchanged issues
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Pages Crawled */}
         <div className="bg-white/2 border border-white/6 backdrop-blur-md rounded-3xl p-8">

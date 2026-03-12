@@ -148,6 +148,38 @@ export default function ScansPage() {
       );
   }, [scans]);
 
+  const [search, setSearch] = useState('');
+
+  const dashboardStats = useMemo(() => {
+    const succeededGroups = groups.filter(g => g.latestScan.status === 'SUCCEEDED' && g.latestScan.summary);
+    const avgScore = succeededGroups.length > 0
+      ? Math.round(succeededGroups.reduce((sum, g) => sum + (g.latestScan.summary?.overallScore ?? 0), 0) / succeededGroups.length)
+      : null;
+
+    let improving = 0;
+    let declining = 0;
+    for (const g of groups) {
+      if (g.scores.length >= 2) {
+        const delta = (g.scores.at(-1) ?? 0) - (g.scores.at(-2) ?? 0);
+        if (delta > 0) improving++;
+        if (delta < 0) declining++;
+      }
+    }
+
+    const totalP0 = succeededGroups.reduce((sum, g) => {
+      const issueCount = g.latestScan.summary?.issueCount;
+      return sum + (issueCount?.P0 ?? 0);
+    }, 0);
+
+    return { avgScore, improving, declining, totalP0 };
+  }, [groups]);
+
+  const filteredGroups = useMemo(() => {
+    if (!search.trim()) return groups;
+    const q = search.toLowerCase();
+    return groups.filter(g => g.displayUrl.toLowerCase().includes(q) || g.normalizedUrl.toLowerCase().includes(q));
+  }, [groups, search]);
+
   const trackedCount = groups.length;
   const totalScans = scans.length;
 
@@ -177,6 +209,54 @@ export default function ScansPage() {
             New Scan
           </Link>
         </div>
+
+        {/* Dashboard Stats */}
+        {!loading && groups.length > 0 && (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-8">
+            <div className="bg-white/2 border border-white/6 backdrop-blur-md rounded-2xl p-5">
+              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Sites Tracked</p>
+              <p className="text-2xl font-bold text-white mt-1">{groups.length}</p>
+            </div>
+            <div className="bg-white/2 border border-white/6 backdrop-blur-md rounded-2xl p-5">
+              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Avg Score</p>
+              <p className={`text-2xl font-bold mt-1 ${(() => {
+                const s = dashboardStats.avgScore;
+                if (s === null) return 'text-slate-500';
+                if (s >= 80) return 'text-emerald-400';
+                if (s >= 50) return 'text-amber-400';
+                return 'text-red-400';
+              })()}`}>
+                {dashboardStats.avgScore ?? '—'}
+              </p>
+            </div>
+            <div className="bg-white/2 border border-white/6 backdrop-blur-md rounded-2xl p-5">
+              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Trending</p>
+              <div className="flex items-center gap-3 mt-1">
+                <span className="text-emerald-400 font-bold">{dashboardStats.improving}↑</span>
+                <span className="text-red-400 font-bold">{dashboardStats.declining}↓</span>
+              </div>
+            </div>
+            <div className="bg-white/2 border border-white/6 backdrop-blur-md rounded-2xl p-5">
+              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Critical Issues</p>
+              <p className={`text-2xl font-bold mt-1 ${dashboardStats.totalP0 > 0 ? 'text-red-400' : 'text-emerald-400'}`}>
+                {dashboardStats.totalP0}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Search filter */}
+        {!loading && groups.length > 3 && (
+          <div className="mb-6">
+            <input
+              type="text"
+              placeholder="Filter sites…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full bg-white/2 border border-white/6 rounded-xl px-4 py-3 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-emerald-500/30 focus:ring-1 focus:ring-emerald-500/20 transition-colors"
+            />
+          </div>
+        )}
 
         {/* Loading state */}
         {loading && (
@@ -210,10 +290,17 @@ export default function ScansPage() {
           </div>
         )}
 
+        {/* Empty search state */}
+        {!loading && filteredGroups.length === 0 && groups.length > 0 && (
+          <div className="bg-white/2 border border-white/6 backdrop-blur-md rounded-3xl p-12 text-center">
+            <p className="text-slate-500 text-sm">No sites matching &ldquo;{search}&rdquo;</p>
+          </div>
+        )}
+
         {/* Grouped URL cards */}
-        {!loading && groups.length > 0 && (
+        {!loading && filteredGroups.length > 0 && (
           <div className="space-y-4">
-            {groups.map((group) => {
+            {filteredGroups.map((group) => {
               const latestScore =
                 group.latestScan.status === 'SUCCEEDED' && group.latestScan.summary
                   ? group.latestScan.summary.overallScore

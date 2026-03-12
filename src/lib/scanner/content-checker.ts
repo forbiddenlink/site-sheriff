@@ -511,6 +511,88 @@ function checkIframeTitles(url: string, html: string): ContentIssue[] {
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
+// Empty headings
+// ───────────────────────────────────────────────────────────────────────────────
+
+function checkEmptyHeadings(url: string, headings: HeadingData[]): ContentIssue[] {
+  if (!headings || headings.length === 0) return [];
+
+  const empty = headings.filter(h => !h.text || h.text.trim().length === 0);
+  if (empty.length === 0) return [];
+
+  return [{
+    code: 'empty_headings',
+    severity: 'P2',
+    category: 'CONTENT',
+    title: `${empty.length} empty heading${empty.length === 1 ? '' : 's'} found`,
+    whyItMatters:
+      'Empty headings break the document outline and confuse screen readers. Search engines may also see them as low-quality markup.',
+    howToFix:
+      'Add descriptive text to each heading, or remove the heading tag if it is purely decorative.',
+    evidence: { url, emptyCount: empty.length, levels: empty.map(h => `h${h.level}`) },
+    impact: 3,
+    effort: 1,
+  }];
+}
+
+// ───────────────────────────────────────────────────────────────────────────────
+// Content-to-code ratio
+// ───────────────────────────────────────────────────────────────────────────────
+
+function checkContentToCodeRatio(url: string, html: string, wordCount: number): ContentIssue[] {
+  if (html.length < 500) return []; // skip tiny pages
+
+  const textLength = wordCount * 5; // rough char estimate
+  const ratio = textLength / html.length;
+
+  if (ratio < 0.05 && wordCount > 20) {
+    return [{
+      code: 'low_text_ratio',
+      severity: 'P3',
+      category: 'CONTENT',
+      title: 'Very low text-to-HTML ratio',
+      whyItMatters:
+        'Pages where text makes up less than 5% of the HTML may be seen as thin or bloated by search engines. High code-to-content ratio can also slow rendering.',
+      howToFix:
+        'Remove unnecessary inline styles, scripts, and markup. Consider moving large CSS and JS to external files.',
+      evidence: { url, ratio: `${(ratio * 100).toFixed(1)}%`, htmlSize: html.length, wordCount },
+      impact: 2,
+      effort: 3,
+    }];
+  }
+  return [];
+}
+
+// ───────────────────────────────────────────────────────────────────────────────
+// Missing language attribute
+// ───────────────────────────────────────────────────────────────────────────────
+
+function checkLanguageAttribute(url: string, html: string, isHomepage: boolean): ContentIssue[] {
+  // Only check homepage — the lang attribute is set once on the html tag
+  if (!isHomepage) return [];
+
+  const htmlTagMatch = /<html[^>]*>/i.exec(html);
+  if (!htmlTagMatch) return [];
+
+  const hasLang = /\blang\s*=\s*["'][a-z]/i.test(htmlTagMatch[0]);
+  if (hasLang) return [];
+
+  return [{
+    code: 'missing_lang_attribute',
+    severity: 'P1',
+    category: 'ACCESSIBILITY',
+    title: 'Missing language attribute on <html> tag',
+    whyItMatters:
+      'The lang attribute helps screen readers pronounce content correctly and enables browsers to offer translation. It is a WCAG 2.1 Level A requirement (Success Criterion 3.1.1).',
+    howToFix:
+      'Add lang="en" (or the appropriate language code) to the <html> tag.',
+    evidence: { url },
+    impact: 5,
+    effort: 1,
+  }];
+}
+
+// ───────────────────────────────────────────────────────────────────────────────
 // Main content quality checker
 // ───────────────────────────────────────────────────────────────────────────────
 
@@ -527,5 +609,8 @@ export function checkContentQuality(result: CrawlResult): ContentIssue[] {
     ...checkDeprecatedHtmlTags(result.url, result.html),
     ...checkFormLabels(result.url, result.html),
     ...checkIframeTitles(result.url, result.html),
+    ...checkEmptyHeadings(result.url, result.headings),
+    ...checkContentToCodeRatio(result.url, result.html, result.wordCount),
+    ...checkLanguageAttribute(result.url, result.html, isHomepage),
   ];
 }

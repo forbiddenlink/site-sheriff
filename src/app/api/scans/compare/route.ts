@@ -44,9 +44,24 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    const [issuesA, issuesB] = await Promise.all([
+      supabaseAdmin
+        .from('Issue')
+        .select('code, title, severity, category')
+        .eq('scanRunId', a)
+        .order('severity', { ascending: true }),
+      supabaseAdmin
+        .from('Issue')
+        .select('code, title, severity, category')
+        .eq('scanRunId', b)
+        .order('severity', { ascending: true }),
+    ]);
+
     return NextResponse.json({
       scanA: resultA.data,
       scanB: resultB.data,
+      issuesA: issuesA.data ?? [],
+      issuesB: issuesB.data ?? [],
     });
   } catch (error) {
     logger.error('Error comparing scans', { error: error instanceof Error ? error.message : String(error) });
