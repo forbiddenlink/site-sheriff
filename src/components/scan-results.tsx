@@ -411,6 +411,284 @@ function compareIssues(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Fix This First + AI Visibility helpers + components
+// ─────────────────────────────────────────────────────────────────────────────
+
+const SEV_WEIGHT: Record<string, number> = { P0: 100, P1: 40, P2: 15, P3: 5 };
+
+function computeFixThisFirst(issues: ScanData['issues']): ScanData['issues'][0] | null {
+  if (!issues.length) return null;
+  const pool = issues.filter((i) => i.howToFix) ?? issues;
+  return (pool.length ? pool : issues).reduce<ScanData['issues'][0] | null>((best, i) => {
+    const score = (SEV_WEIGHT[i.severity] ?? 5) * (i.impact ?? 3) / (i.effort ?? 3);
+    if (!best) return i;
+    const bestScore = (SEV_WEIGHT[best.severity] ?? 5) * (best.impact ?? 3) / (best.effort ?? 3);
+    return score > bestScore ? i : best;
+  }, null);
+}
+
+const AI_ISSUE_CODES = new Set([
+  'no_structured_data',
+  'faq_content_no_schema',
+  'missing_author_attribution',
+  'missing_publish_date',
+  'weak_content_intro',
+  'low_citation_friendliness',
+  'missing_speakable_schema',
+  'missing_date_modified',
+  'missing_llms_txt',
+  'ai_crawlers_blocked',
+]);
+
+const AI_CODE_PENALTY: Record<string, number> = {
+  no_structured_data: 30,
+  ai_crawlers_blocked: 25,
+  missing_llms_txt: 12,
+  faq_content_no_schema: 8,
+  missing_author_attribution: 8,
+  low_citation_friendliness: 8,
+  missing_publish_date: 5,
+  missing_date_modified: 3,
+  weak_content_intro: 3,
+  missing_speakable_schema: 3,
+};
+
+function computeAIVisibilityScore(issues: ScanData['issues']): number {
+  let penalty = 0;
+  const seen = new Set<string>();
+  for (const i of issues) {
+    if (AI_ISSUE_CODES.has(i.code) && !seen.has(i.code)) {
+      penalty += AI_CODE_PENALTY[i.code] ?? 5;
+      seen.add(i.code);
+    }
+  }
+  return Math.max(0, 100 - penalty);
+}
+
+function generateExecutiveSummary(
+  score: number,
+  issues: ScanData['issues'],
+  fixFirst: ScanData['issues'][0] | null,
+): string {
+  const critical = issues.filter((i) => i.severity === 'P0' || i.severity === 'P1').length;
+
+  let headline: string;
+  if (score >= 90) headline = `Your site is in excellent health with a score of ${score}/100.`;
+  else if (score >= 70) headline = `Your site is in good shape (${score}/100) with some areas to improve.`;
+  else if (score >= 50) headline = `Your site scored ${score}/100 and has several issues worth addressing.`;
+  else headline = `Your site scored ${score}/100 — there are serious problems that need immediate attention.`;
+
+  let context: string;
+  if (critical === 0) {
+    context = 'No critical issues were found — great work.';
+  } else {
+    const catCounts: Record<string, number> = {};
+    for (const i of issues.filter((x) => x.severity === 'P0' || x.severity === 'P1')) {
+      catCounts[i.category] = (catCounts[i.category] ?? 0) + 1;
+    }
+    const [worstCat] = Object.entries(catCounts).sort((a, b) => b[1] - a[1])[0] ?? [];
+    const catLabel = worstCat ? ` — mainly in ${worstCat.toLowerCase()}` : '';
+    context = `You have ${critical} critical or high-priority issue${critical === 1 ? '' : 's'}${catLabel}.`;
+  }
+
+  const action = fixFirst
+    ? `Start with "${fixFirst.title}" — ${getEffortLabel(fixFirst.effort ?? 3).toLowerCase()} to fix, high impact.`
+    : 'Review the issues below to plan your improvements.';
+
+  return `${headline} ${context} ${action}`;
+}
+
+function getExecSummaryScoreColor(score: number): string {
+  if (score >= 80) return 'text-emerald-400';
+  if (score >= 50) return 'text-amber-400';
+  return 'text-red-400';
+}
+
+function getAIScoreColor(score: number): string {
+  if (score >= 80) return 'text-emerald-400';
+  if (score >= 50) return 'text-amber-400';
+  return 'text-red-400';
+}
+
+function getSevBorderColor(sev: string): string {
+  if (sev === 'P0') return 'border-red-500/30';
+  if (sev === 'P1') return 'border-orange-500/30';
+  return 'border-amber-500/20';
+}
+
+function getSevBgFrom(sev: string): string {
+  if (sev === 'P0') return 'from-red-500/5';
+  if (sev === 'P1') return 'from-orange-500/5';
+  return 'from-amber-500/5';
+}
+
+function getSevAccentColor(sev: string): string {
+  if (sev === 'P0') return 'text-red-400';
+  if (sev === 'P1') return 'text-orange-400';
+  return 'text-amber-400';
+}
+
+function getSevRingColor(sev: string): string {
+  if (sev === 'P0') return 'bg-red-500/10 border-red-500/20';
+  if (sev === 'P1') return 'bg-orange-500/10 border-orange-500/20';
+  return 'bg-amber-500/10 border-amber-500/20';
+}
+
+function ExecutiveSummaryCard({
+  score,
+  issues,
+  fixFirst,
+}: Readonly<{ score: number; issues: ScanData['issues']; fixFirst: ScanData['issues'][0] | null }>) {
+  const summary = generateExecutiveSummary(score, issues, fixFirst);
+  const scoreColor = getExecSummaryScoreColor(score);
+
+  return (
+    <div className="bg-white/2 border border-white/6 backdrop-blur-md rounded-3xl p-8 mb-8">
+      <div className="flex items-start gap-5">
+        <div className={`text-4xl font-bold tabular-nums shrink-0 ${scoreColor}`}>{score}</div>
+        <div>
+          <h2 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">
+            Executive Summary
+          </h2>
+          <p className="text-sm text-slate-300 leading-relaxed">{summary}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FixThisFirstCard({
+  issue,
+  onScrollTo,
+}: Readonly<{ issue: ScanData['issues'][0]; onScrollTo: () => void }>) {
+  const sev = issue.severity;
+  const borderColor = getSevBorderColor(sev);
+  const bgFrom = getSevBgFrom(sev);
+  const accentColor = getSevAccentColor(sev);
+  const ringColor = getSevRingColor(sev);
+
+  return (
+    <div className={`bg-linear-to-br ${bgFrom} to-transparent border ${borderColor} backdrop-blur-md rounded-3xl p-8 mb-8`}>
+      <div className="flex items-center gap-3 mb-5 flex-wrap">
+        <div className={`w-8 h-8 rounded-full border flex items-center justify-center font-bold text-sm shrink-0 ${ringColor} ${accentColor}`}>
+          1
+        </div>
+        <div className="flex-1">
+          <h2 className="text-sm font-medium text-white tracking-wide">Fix This First</h2>
+          <p className="text-[10px] text-slate-500 uppercase tracking-widest">Highest priority action</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <SeverityBadge severity={issue.severity} />
+          {issue.effort !== null && <EffortBadge effort={issue.effort} />}
+        </div>
+      </div>
+      <h3 className="text-lg font-semibold text-white mb-2">{issue.title}</h3>
+      {issue.whyItMatters && (
+        <p className="text-sm text-slate-400 mb-4 leading-relaxed">{issue.whyItMatters}</p>
+      )}
+      {issue.howToFix && (
+        <div className="bg-white/3 border border-white/6 rounded-2xl p-4 mb-5">
+          <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">How to fix</div>
+          <p className="text-sm text-slate-300 leading-relaxed">{issue.howToFix}</p>
+        </div>
+      )}
+      <button
+        type="button"
+        onClick={onScrollTo}
+        className={`text-xs font-medium ${accentColor} hover:opacity-70 transition-opacity flex items-center gap-1.5`}
+      >
+        View full details
+        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+        </svg>
+      </button>
+    </div>
+  );
+}
+
+function AIVisibilityPanel({ issues }: Readonly<{ issues: ScanData['issues'] }>) {
+  const aiIssues = issues.filter((i) => AI_ISSUE_CODES.has(i.code));
+  const score = computeAIVisibilityScore(issues);
+
+  const passes = (code: string) => !issues.some((i) => i.code === code);
+  const passesAll = (...codes: string[]) => codes.every((c) => passes(c));
+
+  const checks = [
+    { label: 'Structured data (JSON-LD)', ok: passes('no_structured_data') },
+    { label: 'AI crawlers allowed', ok: passes('ai_crawlers_blocked') },
+    { label: 'llms.txt present', ok: passes('missing_llms_txt') },
+    { label: 'FAQ / HowTo schema', ok: passes('faq_content_no_schema') },
+    { label: 'Author attribution', ok: passes('missing_author_attribution') },
+    { label: 'Answer-ready content', ok: passes('low_citation_friendliness') },
+    { label: 'Freshness signals', ok: passesAll('missing_date_modified', 'missing_publish_date') },
+  ];
+
+  const scoreColor = getAIScoreColor(score);
+
+  return (
+    <div className="bg-linear-to-br from-violet-500/5 to-transparent border border-violet-500/10 backdrop-blur-md rounded-3xl p-8 mb-8">
+      <div className="flex items-center gap-3 mb-6">
+        <div className="w-8 h-8 rounded-full bg-violet-500/10 border border-violet-500/20 flex items-center justify-center shrink-0">
+          <svg className="w-4 h-4 text-violet-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17H3a2 2 0 01-2-2V5a2 2 0 012-2h14a2 2 0 012 2v10a2 2 0 01-2 2h-2" />
+          </svg>
+        </div>
+        <div className="flex-1">
+          <h2 className="text-sm font-medium text-white tracking-wide">AI Visibility</h2>
+          <p className="text-[10px] text-slate-500 uppercase tracking-widest">
+            How well AI tools can find and cite your content
+          </p>
+        </div>
+        <div className="text-right">
+          <div className={`text-3xl font-bold tabular-nums ${scoreColor}`}>{score}</div>
+          <div className="text-[10px] text-slate-500 uppercase tracking-widest">/ 100</div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 mb-6">
+        {checks.map((check) => (
+          <div
+            key={check.label}
+            className={`flex items-start gap-2 p-3 rounded-xl border text-xs leading-tight ${
+              check.ok
+                ? 'bg-emerald-500/5 border-emerald-500/15 text-emerald-400'
+                : 'bg-white/2 border-white/6 text-slate-500'
+            }`}
+          >
+            <span className="font-bold mt-0.5 shrink-0">{check.ok ? '✓' : '✗'}</span>
+            <span>{check.label}</span>
+          </div>
+        ))}
+      </div>
+
+      {aiIssues.length === 0 ? (
+        <p className="text-xs text-emerald-400 flex items-center gap-2">
+          <span className="font-bold">✓</span>
+          <span>No AI visibility issues found — your content is well-optimized for AI tools.</span>
+        </p>
+      ) : (
+        <div className="space-y-2">
+          <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3">
+            {aiIssues.length} AI visibility issue{aiIssues.length === 1 ? '' : 's'} found
+          </div>
+          {aiIssues.map((issue) => (
+            <div key={issue.id} className="flex items-start gap-3 p-3 rounded-xl bg-white/2 border border-white/4">
+              <SeverityBadge severity={issue.severity} />
+              <div>
+                <p className="text-sm font-medium text-slate-200">{issue.title}</p>
+                {issue.howToFix && (
+                  <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">{issue.howToFix}</p>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Main Scan Results View
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -513,10 +791,8 @@ export function ScanResultsView({
   };
 
   const handleDownloadPDF = () => {
-    if (data?.issues) {
-      setExpandedIssues(new Set(data.issues.map((i) => i.id)));
-    }
-    setTimeout(() => globalThis.print(), 100);
+    if (!data) return;
+    globalThis.open(`/scan/${data.id}/print`, '_blank');
   };
 
   const handleRescan = async () => {
@@ -607,6 +883,7 @@ export function ScanResultsView({
   const isComplete = data.status === 'SUCCEEDED';
   const isFailed = data.status === 'FAILED';
   const isRunning = data.status === 'QUEUED' || data.status === 'RUNNING';
+  const fixThisFirst = isComplete ? computeFixThisFirst(data.issues) : null;
 
   const categoryFilters = ['SEO', 'SECURITY', 'PERFORMANCE', 'ACCESSIBILITY', 'LINKS', 'CONTENT'];
 
@@ -825,6 +1102,32 @@ export function ScanResultsView({
         {/* Results */}
         {isComplete && data.summary && (
           <>
+        {/* Executive Summary — full variant only */}
+            {isFull && (
+              <ExecutiveSummaryCard
+                score={data.summary.overallScore}
+                issues={data.issues}
+                fixFirst={fixThisFirst}
+              />
+            )}
+
+            {/* Fix This First — full variant only */}
+            {isFull && fixThisFirst && (
+              <FixThisFirstCard
+                issue={fixThisFirst}
+                onScrollTo={() => {
+                  setExpandedIssues((prev) => {
+                    const next = new Set(prev);
+                    next.add(fixThisFirst.id);
+                    return next;
+                  });
+                  setTimeout(() => {
+                    document.getElementById(`issue-${fixThisFirst.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                  }, 100);
+                }}
+              />
+            )}
+
             {/* Score Bento Box */}
             <div className="grid grid-cols-1 lg:grid-cols-[auto_1fr] gap-6 mb-8">
               {/* Overall Score Card */}
@@ -1126,6 +1429,11 @@ export function ScanResultsView({
                   ))}
                 </div>
               </div>
+            )}
+
+            {/* AI Visibility — full variant only */}
+            {isFull && (
+              <AIVisibilityPanel issues={data.issues} />
             )}
 
             {/* Priority Action Matrix — Quick Wins — full variant only */}
