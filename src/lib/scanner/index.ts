@@ -8,6 +8,7 @@ import { checkSecurity, checkSecurityTxt, checkHttpsRedirect } from './security-
 import { checkCompression } from './compression-checker';
 import { checkRobotsSitemap, parseDisallowPatterns } from './robots-checker';
 import { detectTechnologies } from './tech-detector';
+import { enhanceWithCMSAdvice } from './cms-advice';
 import { generateEmailDraft } from './email-draft';
 import { generateAIEmailDraft } from './ai-summary';
 import { checkContentQuality } from './content-checker';
@@ -1137,7 +1138,10 @@ export async function runScan(ctx: ScanContext): Promise<void> {
     });
 
     // Dedupe issues by code + url
-    const uniqueIssues = dedupeIssues(allIssues);
+    const deduped = dedupeIssues(allIssues);
+
+    // Enhance issues with CMS-specific advice
+    const uniqueIssues = deduped.map((issue) => enhanceWithCMSAdvice(issue, technologies));
 
     // Save issues to database (batch insert)
     const issueRows = uniqueIssues.map((issue) => ({

@@ -77,6 +77,8 @@ export interface ScanData {
     id: string;
     score: number;
     createdAt: string;
+    categoryScores?: Record<string, number> | null;
+    issueCount?: Record<string, number> | null;
   } | null;
   scoreHistory?: Array<{
     id: string;
@@ -186,7 +188,7 @@ export function ScoreRing({ score, size = 120 }: Readonly<{ score: number; size?
   );
 }
 
-export function CategoryScoreBar({ cat, score, barColor, bgGlow }: Readonly<{ cat: string; score: number; barColor: string; bgGlow: string }>) {
+export function CategoryScoreBar({ cat, score, barColor, bgGlow, delta }: Readonly<{ cat: string; score: number; barColor: string; bgGlow: string; delta?: number }>) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => {
     requestAnimationFrame(() => setMounted(true));
@@ -194,8 +196,15 @@ export function CategoryScoreBar({ cat, score, barColor, bgGlow }: Readonly<{ ca
 
   return (
     <div className="flex flex-col">
-      <div className="text-3xl font-bold tracking-tighter text-transparent bg-clip-text bg-[linear-gradient(to_bottom,#fff,#94a3b8)] print:text-black print:bg-none print:bg-clip-border print:[-webkit-text-fill-color:#111]">
-        {score}
+      <div className="flex items-baseline gap-2">
+        <div className="text-3xl font-bold tracking-tighter text-transparent bg-clip-text bg-[linear-gradient(to_bottom,#fff,#94a3b8)] print:text-black print:bg-none print:bg-clip-border print:[-webkit-text-fill-color:#111]">
+          {score}
+        </div>
+        {delta !== undefined && delta !== 0 && (
+          <span className={`text-xs font-bold ${delta > 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+            {delta > 0 ? '↑' : '↓'}{Math.abs(delta)}
+          </span>
+        )}
       </div>
       <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-1 mb-2">
         {cat}
@@ -438,19 +447,25 @@ const AI_ISSUE_CODES = new Set([
   'missing_date_modified',
   'missing_llms_txt',
   'ai_crawlers_blocked',
+  'missing_brand_entity',
+  'missing_entity_sameAs',
+  'missing_og_description',
 ]);
 
 const AI_CODE_PENALTY: Record<string, number> = {
   no_structured_data: 30,
   ai_crawlers_blocked: 25,
+  missing_brand_entity: 20,
   missing_llms_txt: 12,
   faq_content_no_schema: 8,
   missing_author_attribution: 8,
   low_citation_friendliness: 8,
+  missing_entity_sameAs: 5,
   missing_publish_date: 5,
   missing_date_modified: 3,
   weak_content_intro: 3,
   missing_speakable_schema: 3,
+  missing_og_description: 2,
 };
 
 function computeAIVisibilityScore(issues: ScanData['issues']): number {
@@ -557,6 +572,43 @@ function ExecutiveSummaryCard({
   );
 }
 
+function HowToFixContent({ content }: Readonly<{ content: string }>) {
+  // Split content by code blocks (text containing < and > on their own line or after \n\n)
+  const parts = content.split(/\n\n(?=<)/);
+
+  if (parts.length === 1 && !content.includes('\n\n<')) {
+    // No code blocks, render as plain text
+    return <p className="text-sm text-slate-300 leading-relaxed whitespace-pre-wrap">{content}</p>;
+  }
+
+  return (
+    <div className="space-y-3">
+      {parts.map((part, i) => {
+        const trimmed = part.trim();
+        if (trimmed.startsWith('<')) {
+          // This is a code snippet
+          return (
+            <div key={i} className="relative group">
+              <pre className="text-xs bg-slate-900/50 border border-slate-700/50 rounded-lg p-3 overflow-x-auto font-mono text-emerald-300">
+                <code>{trimmed}</code>
+              </pre>
+              <button
+                type="button"
+                onClick={() => navigator.clipboard.writeText(trimmed)}
+                className="absolute top-2 right-2 px-2 py-1 text-[10px] bg-slate-700/50 hover:bg-slate-600/50 text-slate-300 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+              >
+                Copy
+              </button>
+            </div>
+          );
+        }
+        // Regular text
+        return <p key={i} className="text-sm text-slate-300 leading-relaxed">{trimmed}</p>;
+      })}
+    </div>
+  );
+}
+
 function FixThisFirstCard({
   issue,
   onScrollTo,
@@ -589,7 +641,7 @@ function FixThisFirstCard({
       {issue.howToFix && (
         <div className="bg-white/3 border border-white/6 rounded-2xl p-4 mb-5">
           <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">How to fix</div>
-          <p className="text-sm text-slate-300 leading-relaxed">{issue.howToFix}</p>
+          <HowToFixContent content={issue.howToFix} />
         </div>
       )}
       <button
@@ -615,6 +667,7 @@ function AIVisibilityPanel({ issues }: Readonly<{ issues: ScanData['issues'] }>)
 
   const checks = [
     { label: 'Structured data (JSON-LD)', ok: passes('no_structured_data') },
+    { label: 'Brand entity schema', ok: passes('missing_brand_entity') },
     { label: 'AI crawlers allowed', ok: passes('ai_crawlers_blocked') },
     { label: 'llms.txt present', ok: passes('missing_llms_txt') },
     { label: 'FAQ / HowTo schema', ok: passes('faq_content_no_schema') },
@@ -713,6 +766,9 @@ export function ScanResultsView({
   const [groupByPage, setGroupByPage] = useState(false);
   const [rescanLoading, setRescanLoading] = useState(false);
   const [markdownCopied, setMarkdownCopied] = useState(false);
+  const [shareToken, setShareToken] = useState<string | null>(null);
+  const [showBadgeEmbed, setShowBadgeEmbed] = useState(false);
+  const [badgeCopied, setBadgeCopied] = useState(false);
 
   const isFull = variant === 'full';
 
@@ -762,8 +818,9 @@ export function ScanResultsView({
     try {
       const res = await fetch(`/api/scan/${data.id}/share`, { method: 'POST' });
       if (!res.ok) throw new Error('Failed to create share link');
-      const { shareToken } = await res.json();
-      const shareUrl = `${globalThis.location.origin}/shared/${shareToken}`;
+      const { shareToken: token } = await res.json();
+      setShareToken(token);
+      const shareUrl = `${globalThis.location.origin}/shared/${token}`;
       await navigator.clipboard.writeText(shareUrl);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
@@ -774,6 +831,18 @@ export function ScanResultsView({
     } finally {
       setShareLoading(false);
     }
+  };
+
+  const handleCopyBadge = async (format: 'markdown' | 'html') => {
+    if (!shareToken) return;
+    const badgeUrl = `${globalThis.location.origin}/api/badge/${shareToken}`;
+    const linkUrl = `${globalThis.location.origin}/shared/${shareToken}`;
+    const code = format === 'markdown'
+      ? `[![Site Sheriff Score](${badgeUrl})](${linkUrl})`
+      : `<a href="${linkUrl}"><img src="${badgeUrl}" alt="Site Sheriff Score" /></a>`;
+    await navigator.clipboard.writeText(code);
+    setBadgeCopied(true);
+    setTimeout(() => setBadgeCopied(false), 2000);
   };
 
   const handleExport = (format: 'csv' | 'json') => {
@@ -1007,13 +1076,50 @@ export function ScanResultsView({
                   </div>
                 )}
               </div>
-              <button
-                onClick={handleShareReport}
-                disabled={shareLoading}
-                className="px-5 py-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20 hover:text-emerald-300 transition-all text-sm font-medium backdrop-blur-md active:scale-95 disabled:opacity-50"
-              >
-                {getShareButtonLabel(copied, shareLoading)}
-              </button>
+              <div className="relative">
+                <button
+                  onClick={handleShareReport}
+                  disabled={shareLoading}
+                  className="px-5 py-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20 hover:text-emerald-300 transition-all text-sm font-medium backdrop-blur-md active:scale-95 disabled:opacity-50"
+                >
+                  {getShareButtonLabel(copied, shareLoading)}
+                </button>
+                {shareToken && (
+                  <button
+                    onClick={() => setShowBadgeEmbed(!showBadgeEmbed)}
+                    className="ml-2 px-3 py-2.5 rounded-xl bg-violet-500/10 border border-violet-500/20 text-violet-400 hover:bg-violet-500/20 hover:text-violet-300 transition-all text-sm font-medium backdrop-blur-md active:scale-95"
+                    title="Get embed badge"
+                  >
+                    🏷️
+                  </button>
+                )}
+                {showBadgeEmbed && shareToken && (
+                  <div className="absolute right-0 mt-2 w-72 bg-slate-900/95 border border-white/10 rounded-xl shadow-2xl z-50 p-4 backdrop-blur-md">
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="text-sm font-medium text-white">Embed Score Badge</span>
+                      <button onClick={() => setShowBadgeEmbed(false)} className="text-slate-400 hover:text-white text-lg">×</button>
+                    </div>
+                    <div className="mb-3">
+                      <img src={`/api/badge/${shareToken}`} alt="Score badge preview" className="mb-2" />
+                    </div>
+                    <div className="space-y-2">
+                      <button
+                        onClick={() => handleCopyBadge('markdown')}
+                        className="w-full text-left px-3 py-2 text-sm text-slate-300 hover:bg-white/6 hover:text-white transition-colors rounded-lg border border-white/6"
+                      >
+                        {badgeCopied ? '✓ Copied!' : '📋 Copy Markdown'}
+                      </button>
+                      <button
+                        onClick={() => handleCopyBadge('html')}
+                        className="w-full text-left px-3 py-2 text-sm text-slate-300 hover:bg-white/6 hover:text-white transition-colors rounded-lg border border-white/6"
+                      >
+                        {badgeCopied ? '✓ Copied!' : '📋 Copy HTML'}
+                      </button>
+                    </div>
+                    <p className="text-xs text-slate-500 mt-3">Add this badge to your README or website</p>
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </div>
@@ -1128,6 +1234,64 @@ export function ScanResultsView({
               />
             )}
 
+            {/* What Changed Banner — show when we have previous scan comparison */}
+            {isFull && data.previousScan && (() => {
+              const delta = data.summary.overallScore - data.previousScan.score;
+              const prevIssueCount = data.previousScan.issueCount;
+              const currentIssueCount = data.summary.issueCount;
+              const p0Delta = prevIssueCount && currentIssueCount
+                ? currentIssueCount.P0 - prevIssueCount.P0
+                : null;
+              const totalCurrentIssues = data.issues.length;
+              const totalPrevIssues = prevIssueCount
+                ? (prevIssueCount.P0 || 0) + (prevIssueCount.P1 || 0) + (prevIssueCount.P2 || 0) + (prevIssueCount.P3 || 0)
+                : null;
+              const issuesDelta = totalPrevIssues !== null ? totalCurrentIssues - totalPrevIssues : null;
+
+              if (delta === 0 && p0Delta === 0) return null;
+
+              return (
+                <div className={`mb-8 p-6 rounded-2xl border backdrop-blur-md ${
+                  delta > 0
+                    ? 'bg-emerald-500/5 border-emerald-500/20'
+                    : delta < 0
+                      ? 'bg-red-500/5 border-red-500/20'
+                      : 'bg-white/2 border-white/10'
+                }`}>
+                  <div className="flex items-center justify-between flex-wrap gap-4">
+                    <div className="flex items-center gap-4">
+                      <div className={`text-3xl font-bold ${delta > 0 ? 'text-emerald-400' : delta < 0 ? 'text-red-400' : 'text-slate-400'}`}>
+                        {delta > 0 ? '↑' : delta < 0 ? '↓' : '→'} {Math.abs(delta)} pts
+                      </div>
+                      <div className="text-sm text-slate-400">
+                        since last scan ({new Date(data.previousScan.createdAt).toLocaleDateString()})
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-6 text-sm">
+                      {p0Delta !== null && p0Delta !== 0 && (
+                        <div className={`flex items-center gap-1 ${p0Delta > 0 ? 'text-red-400' : 'text-emerald-400'}`}>
+                          <span className="font-bold">{p0Delta > 0 ? '+' : ''}{p0Delta}</span>
+                          <span className="text-slate-500">critical</span>
+                        </div>
+                      )}
+                      {issuesDelta !== null && issuesDelta !== 0 && (
+                        <div className={`flex items-center gap-1 ${issuesDelta > 0 ? 'text-amber-400' : 'text-emerald-400'}`}>
+                          <span className="font-bold">{issuesDelta > 0 ? '+' : ''}{issuesDelta}</span>
+                          <span className="text-slate-500">issues</span>
+                        </div>
+                      )}
+                      <Link
+                        href={`/scans/compare?a=${data.previousScan.id}&b=${data.id}`}
+                        className="px-4 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-emerald-400 text-sm font-medium transition-colors"
+                      >
+                        View Full Comparison →
+                      </Link>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
             {/* Score Bento Box */}
             <div className="grid grid-cols-1 lg:grid-cols-[auto_1fr] gap-6 mb-8">
               {/* Overall Score Card */}
@@ -1180,8 +1344,10 @@ export function ScanResultsView({
                         ([cat, catScore]) => {
                           const barColor = getCatBarColor(catScore);
                           const bgGlow = getCatBgGlow(catScore);
+                          const prevCatScore = data.previousScan?.categoryScores?.[cat];
+                          const delta = prevCatScore !== undefined ? catScore - prevCatScore : undefined;
                           return (
-                            <CategoryScoreBar key={cat} cat={cat} score={catScore} barColor={barColor} bgGlow={bgGlow} />
+                            <CategoryScoreBar key={cat} cat={cat} score={catScore} barColor={barColor} bgGlow={bgGlow} delta={delta} />
                           );
                         }
                       )}
@@ -1732,9 +1898,9 @@ export function ScanResultsView({
                             {issue.howToFix && (
                               <div>
                                 <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">How to Fix</h4>
-                                <p className="text-slate-300 text-sm leading-relaxed max-w-3xl">
-                                  {issue.howToFix}
-                                </p>
+                                <div className="max-w-3xl">
+                                  <HowToFixContent content={issue.howToFix} />
+                                </div>
                               </div>
                             )}
 

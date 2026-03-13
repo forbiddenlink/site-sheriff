@@ -10,6 +10,10 @@ export function checkTitle(result: CrawlResult, disallowPatterns: string[] = [])
   const isAuthPage = isLikelyAuthPage(result.url, disallowPatterns);
 
   if (!result.title) {
+    // Generate suggested title from URL path
+    const urlPath = new URL(result.url).pathname;
+    const suggestedTitle = urlPath === '/' ? '[Your Brand] - [Primary Value Proposition]' :
+      urlPath.split('/').filter(Boolean).pop()?.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) + ' | [Your Brand]';
     issues.push({
       code: 'missing_title',
       severity: isAuthPage ? 'P3' : 'P0',
@@ -18,8 +22,8 @@ export function checkTitle(result: CrawlResult, disallowPatterns: string[] = [])
       whyItMatters: isAuthPage
         ? 'Page titles help with browser tabs and accessibility. This appears to be a dashboard/auth page, so SEO impact is minimal.'
         : 'Page titles are critical for SEO and appear in search results. Missing titles hurt rankings and click-through rates.',
-      howToFix: 'Add a <title> tag inside the <head> section with a descriptive, unique title (50-60 characters).',
-      evidence: { url: result.url },
+      howToFix: `Add this to your <head>:\n\n<title>${suggestedTitle}</title>`,
+      evidence: { url: result.url, snippet: `<title>${suggestedTitle}</title>` },
       impact: isAuthPage ? 1 : 5,
       effort: 1,
     });
@@ -59,14 +63,15 @@ export function checkMetaDescription(result: CrawlResult): SEOIssue[] {
   const issues: SEOIssue[] = [];
 
   if (!result.metaDescription) {
+    const snippet = '<meta name="description" content="[Write a compelling 150-160 character summary that includes your main keyword and a call-to-action]">';
     issues.push({
       code: 'missing_meta_description',
       severity: 'P1',
       category: 'SEO',
       title: 'Missing meta description',
       whyItMatters: 'Meta descriptions appear in search results and influence click-through rates. Without one, search engines generate their own (often poorly).',
-      howToFix: 'Add a <meta name="description" content="..."> tag with a compelling summary (150-160 characters).',
-      evidence: { url: result.url },
+      howToFix: `Add this to your <head>:\n\n${snippet}`,
+      evidence: { url: result.url, snippet },
       impact: 4,
       effort: 1,
     });
@@ -160,14 +165,15 @@ export function checkViewport(result: CrawlResult): SEOIssue[] {
   const issues: SEOIssue[] = [];
 
   if (!result.viewport) {
+    const snippet = '<meta name="viewport" content="width=device-width, initial-scale=1">';
     issues.push({
       code: 'missing_viewport',
       severity: 'P1',
       category: 'SEO',
       title: 'Missing viewport meta tag',
       whyItMatters: 'Without a viewport meta tag, mobile devices render the page at desktop width. Google uses mobile-first indexing, so this hurts rankings.',
-      howToFix: 'Add <meta name="viewport" content="width=device-width, initial-scale=1"> to the <head>.',
-      evidence: { url: result.url },
+      howToFix: `Add this to your <head>:\n\n${snippet}`,
+      evidence: { url: result.url, snippet },
       impact: 5,
       effort: 1,
     });
@@ -195,14 +201,15 @@ export function checkLangAttribute(result: CrawlResult): SEOIssue[] {
   const issues: SEOIssue[] = [];
 
   if (!result.lang) {
+    const snippet = '<html lang="en">';
     issues.push({
       code: 'missing_lang_attribute',
       severity: 'P2',
       category: 'ACCESSIBILITY',
       title: 'Missing lang attribute on <html>',
       whyItMatters: 'The lang attribute helps screen readers determine the correct pronunciation and helps search engines understand the page language. Missing it hurts accessibility.',
-      howToFix: 'Add lang="en" (or your language code) to the <html> tag.',
-      evidence: { url: result.url },
+      howToFix: `Update your <html> tag:\n\n${snippet}`,
+      evidence: { url: result.url, snippet },
       impact: 3,
       effort: 1,
     });

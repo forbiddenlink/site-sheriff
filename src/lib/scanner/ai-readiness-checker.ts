@@ -347,6 +347,120 @@ function checkCitationFriendliness($: cheerio.CheerioAPI, url: string): AIReadin
 }
 
 /**
+ * Check for entity/brand schema (Organization, LocalBusiness, Person)
+ * that helps AI systems recognize and cite the brand correctly.
+ */
+function checkBrandEntity($: cheerio.CheerioAPI, url: string): AIReadinessIssue[] {
+  const jsonLdScripts = $('script[type="application/ld+json"]');
+  let hasOrganization = false;
+  let hasWebsite = false;
+  let hasSameAs = false; // Links to social profiles for entity disambiguation
+
+  jsonLdScripts.each((_i, el) => {
+    const content = $(el).text();
+    try {
+      const data = JSON.parse(content);
+      const items = Array.isArray(data) ? data : [data];
+      for (const item of items) {
+        const itemType = item['@type'];
+        if (itemType === 'Organization' || itemType === 'LocalBusiness' ||
+            itemType === 'Corporation' || itemType === 'Person') {
+          hasOrganization = true;
+          if (item.sameAs && Array.isArray(item.sameAs) && item.sameAs.length > 0) {
+            hasSameAs = true;
+          }
+        }
+        if (itemType === 'WebSite') {
+          hasWebsite = true;
+        }
+      }
+    } catch {
+      // Invalid JSON
+    }
+  });
+
+  const issues: AIReadinessIssue[] = [];
+
+  // Only check homepage for brand entity
+  const isHomepage = new URL(url).pathname === '/' || new URL(url).pathname === '';
+
+  if (isHomepage && !hasOrganization) {
+    issues.push({
+      code: 'missing_brand_entity',
+      severity: 'P2' as const,
+      category: 'SEO' as const,
+      title: 'No Organization schema for brand identity',
+      whyItMatters:
+        'AI systems use Organization schema to understand your brand identity, connect your content to your entity in knowledge graphs, and cite you accurately. Without it, AI may misattribute or ignore your content.',
+      howToFix:
+        'Add Organization (or LocalBusiness/Person) schema to your homepage with: name, url, logo, description, and sameAs links to your social profiles (LinkedIn, Twitter, etc.).',
+      evidence: {
+        url,
+        expected: 'Organization, LocalBusiness, or Person schema with brand details',
+      },
+      impact: 4,
+      effort: 2,
+    });
+  }
+
+  if (hasOrganization && !hasSameAs) {
+    issues.push({
+      code: 'missing_entity_sameAs',
+      severity: 'P3' as const,
+      category: 'SEO' as const,
+      title: 'Organization schema missing sameAs social links',
+      whyItMatters:
+        'The sameAs property helps AI disambiguate your entity from others with similar names. Links to official social profiles (LinkedIn, Twitter, Crunchbase) strengthen your knowledge graph presence.',
+      howToFix:
+        'Add sameAs array to your Organization schema with links to your official social profiles: ["https://linkedin.com/company/...", "https://twitter.com/...", "https://crunchbase.com/..."]',
+      evidence: {
+        url,
+        actual: 'Organization schema without sameAs property',
+        expected: 'sameAs array with social profile URLs',
+      },
+      impact: 2,
+      effort: 1,
+    });
+  }
+
+  return issues;
+}
+
+/**
+ * Check for AI-optimized meta content that helps with snippet extraction.
+ */
+function checkAIMetaOptimization($: cheerio.CheerioAPI, url: string): AIReadinessIssue[] {
+  const issues: AIReadinessIssue[] = [];
+
+  // Check for og:description which AI uses for content preview
+  const ogDescription = $('meta[property="og:description"]').attr('content');
+  const metaDescription = $('meta[name="description"]').attr('content');
+
+  // AI systems often prefer og:description over meta description
+  if (!ogDescription && metaDescription) {
+    issues.push({
+      code: 'missing_og_description',
+      severity: 'P3' as const,
+      category: 'SEO' as const,
+      title: 'Missing og:description for AI content extraction',
+      whyItMatters:
+        'AI systems like Perplexity and ChatGPT often prefer og:description for content summaries. Having both meta description and og:description ensures consistent AI citations.',
+      howToFix:
+        'Add <meta property="og:description" content="..."> matching or expanding on your meta description.',
+      evidence: {
+        url,
+        actual: 'meta description present, og:description missing',
+        expected: 'Both meta description and og:description',
+      },
+      impact: 1,
+      effort: 1,
+    });
+  }
+
+  return issues;
+}
+
+/**
  * Check for clear content summary/intro that AI can extract.
  * First paragraph should summarize the page content.
  */
@@ -421,6 +535,8 @@ export function checkAIReadiness(result: CrawlResult): AIReadinessIssue[] {
     ...checkCitationFriendliness($, result.url),
     ...checkSpeakableSchema($, result.url),
     ...checkContentFreshness($, result.url),
+    ...checkBrandEntity($, result.url),
+    ...checkAIMetaOptimization($, result.url),
   ];
 }
 

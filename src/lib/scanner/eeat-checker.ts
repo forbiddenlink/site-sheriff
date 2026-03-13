@@ -200,6 +200,194 @@ function checkOrganizationSchema(url: string, html: string): EEATIssue[] {
   return [];
 }
 
+/**
+ * Check for author bio quality on article pages
+ */
+function checkAuthorBioQuality(url: string, $: cheerio.CheerioAPI): EEATIssue[] {
+  const isArticle = /\/blog\/|\/article\/|\/post\/|\/news\/|\/\d{4}\/\d{2}\//i.test(url)
+    && !/\/(news|blog|articles?)\/?$/i.test(new URL(url).pathname)
+    && !/\/(topics|categories|tags|recently-published|media-contacts)\//i.test(url);
+
+  if (!isArticle) return [];
+
+  // Check for author bio section
+  const authorBio = $('.author-bio, .author-info, [class*="author-bio"], [class*="author-info"]');
+  const hasAuthorBio = authorBio.length > 0;
+
+  if (!hasAuthorBio) {
+    // Check if there's just an author name without bio
+    const hasAuthorName = $('.author, .byline, [class*="author"]').length > 0;
+    if (hasAuthorName) {
+      return [{
+        code: 'author_no_bio',
+        severity: 'P3',
+        category: 'CONTENT',
+        title: 'Author name present but no author bio',
+        whyItMatters:
+          'Author bios demonstrate expertise and build trust with readers. Google\'s E-E-A-T guidelines favor content from identifiable experts with visible credentials.',
+        howToFix:
+          'Add an author bio section with credentials, experience, and optionally a photo. Link to the author\'s profile page or social media.',
+        evidence: { url },
+        impact: 3,
+        effort: 2,
+      }];
+    }
+  }
+
+  return [];
+}
+
+/**
+ * Check for citations to authoritative sources
+ */
+function checkCitationQuality(url: string, $: cheerio.CheerioAPI): EEATIssue[] {
+  const isArticle = /\/blog\/|\/article\/|\/post\/|\/news\/|\/\d{4}\/\d{2}\//i.test(url)
+    && !/\/(news|blog|articles?)\/?$/i.test(new URL(url).pathname)
+    && !/\/(topics|categories|tags|recently-published|media-contacts)\//i.test(url);
+
+  if (!isArticle) return [];
+
+  // Count external links in the content area
+  const contentArea = $('article, main, .content, [role="main"]');
+  const externalLinks = contentArea.find('a[href^="http"]').filter(function() {
+    const href = $(this).attr('href') || '';
+    try {
+      return new URL(href).hostname !== new URL(url).hostname;
+    } catch {
+      return false;
+    }
+  });
+
+  // Check for authoritative domain patterns
+  const authoritativeDomains = [
+    '.gov', '.edu', '.org',
+    'wikipedia.org', 'scholar.google', 'pubmed', 'arxiv.org',
+    'reuters.com', 'bbc.com', 'nytimes.com', 'wsj.com',
+    'nature.com', 'sciencedirect.com', 'researchgate.net'
+  ];
+
+  const authoritativeLinks = externalLinks.filter(function() {
+    const href = $(this).attr('href') || '';
+    return authoritativeDomains.some(domain => href.includes(domain));
+  });
+
+  const wordCount = contentArea.text().split(/\s+/).length;
+  const isLongForm = wordCount > 1000;
+
+  // Only check long-form content
+  if (isLongForm && externalLinks.length === 0) {
+    return [{
+      code: 'no_external_citations',
+      severity: 'P3',
+      category: 'CONTENT',
+      title: 'Long-form content without external citations',
+      whyItMatters:
+        'Citing authoritative sources demonstrates research depth and builds credibility. AI systems and search engines value well-researched content with supporting references.',
+      howToFix:
+        'Add links to authoritative sources (.gov, .edu, academic papers, reputable news) that support your claims. Use descriptive anchor text.',
+      evidence: { url, wordCount, externalLinkCount: 0 },
+      impact: 2,
+      effort: 2,
+    }];
+  }
+
+  if (isLongForm && externalLinks.length > 0 && authoritativeLinks.length === 0) {
+    return [{
+      code: 'no_authoritative_citations',
+      severity: 'P3',
+      category: 'CONTENT',
+      title: 'External links present but no authoritative sources',
+      whyItMatters:
+        'Linking to authoritative sources (.gov, .edu, academic journals, major publications) signals research quality and trustworthiness to both readers and search engines.',
+      howToFix:
+        'Include references to authoritative sources where appropriate: government sites, educational institutions, peer-reviewed research, or major publications.',
+      evidence: { url, externalLinkCount: externalLinks.length },
+      impact: 2,
+      effort: 2,
+    }];
+  }
+
+  return [];
+}
+
+/**
+ * Check for testimonials and social proof
+ */
+function checkSocialProof(url: string, $: cheerio.CheerioAPI): EEATIssue[] {
+  // Only check homepage and landing pages
+  const isHomepage = new URL(url).pathname === '/';
+  const isLandingPage = /\/(pricing|features|product|solutions|about)\/?$/i.test(new URL(url).pathname);
+
+  if (!isHomepage && !isLandingPage) return [];
+
+  // Check for testimonials
+  const hasTestimonials = $(
+    '.testimonial, .testimonials, [class*="testimonial"], ' +
+    '.review, .reviews, [class*="customer-review"], ' +
+    'blockquote.quote, [class*="customer-quote"]'
+  ).length > 0;
+
+  // Check for logos/social proof
+  const hasLogos = $(
+    '.logos, .client-logos, .partner-logos, .trusted-by, ' +
+    '[class*="logo-wall"], [class*="client-logo"], [class*="as-seen"]'
+  ).length > 0;
+
+  // Check for stats/numbers
+  const hasStats = $(
+    '.stats, .numbers, [class*="stat-"], ' +
+    '[class*="metric"], [class*="counter"]'
+  ).length > 0;
+
+  const socialProofElements = [hasTestimonials, hasLogos, hasStats].filter(Boolean).length;
+
+  if (isHomepage && socialProofElements === 0) {
+    return [{
+      code: 'no_social_proof',
+      severity: 'P3',
+      category: 'CONTENT',
+      title: 'Homepage lacks social proof elements',
+      whyItMatters:
+        'Testimonials, client logos, and statistics build trust and credibility. Visitors are more likely to convert when they see evidence that others trust your product or service.',
+      howToFix:
+        'Add social proof elements: customer testimonials with photos/names, client logos ("Trusted by..."), or statistics ("10,000+ customers", "99% uptime").',
+      evidence: { url, hasTestimonials, hasLogos, hasStats },
+      impact: 3,
+      effort: 2,
+    }];
+  }
+
+  return [];
+}
+
+/**
+ * Check About page quality (from homepage)
+ */
+function checkAboutPageLink(url: string, $: cheerio.CheerioAPI): EEATIssue[] {
+  const isHomepage = new URL(url).pathname === '/';
+  if (!isHomepage) return [];
+
+  const hasAboutLink = $('a[href*="/about"], a[href*="/company"], a[href*="/team"]').length > 0;
+
+  if (!hasAboutLink) {
+    return [{
+      code: 'no_about_page_link',
+      severity: 'P3',
+      category: 'SEO',
+      title: 'No link to About/Company page from homepage',
+      whyItMatters:
+        'An About page is a key trust signal for E-E-A-T. It tells visitors and search engines who you are, your expertise, and why they should trust you.',
+      howToFix:
+        'Add an About page with company/personal background, mission, team members, and credentials. Link to it from your main navigation or footer.',
+      evidence: { url },
+      impact: 2,
+      effort: 2,
+    }];
+  }
+
+  return [];
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // DOM Complexity Checks
 // ─────────────────────────────────────────────────────────────────────────────
@@ -672,9 +860,13 @@ export function checkEEAT(result: CrawlResult): EEATIssue[] {
 
   return [
     ...checkAuthorInfo(result.url, result.html, $),
+    ...checkAuthorBioQuality(result.url, $),
     ...checkPublicationDate(result.url, $),
     ...checkTrustSignals(result.url, $),
     ...checkOrganizationSchema(result.url, result.html),
+    ...checkCitationQuality(result.url, $),
+    ...checkSocialProof(result.url, $),
+    ...checkAboutPageLink(result.url, $),
     ...checkDOMComplexity(result.url, $),
     ...checkInfrastructure(result),
     ...checkPWAFeatures(result),
