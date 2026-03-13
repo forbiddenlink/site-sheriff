@@ -128,3 +128,20 @@ enum ScheduleFrequency {
   WEEKLY
   MONTHLY
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Email Leads (Freemium Funnel)
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Lead {
+  id           String   @id @default(cuid())
+  createdAt    DateTime @default(now())
+  email        String   @unique
+  source       String   @default("scan_gate") // scan_gate, newsletter, etc.
+  scansUnlocked Int     @default(3)          // Free scans remaining
+  totalScans   Int      @default(0)          // Total scans accessed
+  lastScanAt   DateTime?
+
+  @@index([email])
+  @@index([createdAt])
+}

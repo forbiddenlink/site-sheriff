@@ -37,7 +37,13 @@ export async function GET(request: NextRequest, context: RouteContext) {
     }
 
     // Get previous scans for trend comparison and sparkline (up to 9 prior + current)
-    let previousScan: { id: string; score: number; createdAt: string } | null = null;
+    let previousScan: {
+      id: string;
+      score: number;
+      createdAt: string;
+      categoryScores?: Record<string, number> | null;
+      issueCount?: Record<string, number> | null;
+    } | null = null;
     let scoreHistory: Array<{ id: string; score: number; createdAt: string }> = [];
     if (scanRun.status === 'SUCCEEDED' && scanRun.normalizedUrl && scanRun.summary?.overallScore != null) {
       const { data: prevScans } = await supabaseAdmin
@@ -52,10 +58,13 @@ export async function GET(request: NextRequest, context: RouteContext) {
       if (prevScans && prevScans.length > 0) {
         const valid = prevScans.filter((s) => s.summary?.overallScore != null);
         if (valid.length > 0) {
+          const prev = valid[0];
           previousScan = {
-            id: valid[0].id,
-            score: valid[0].summary.overallScore,
-            createdAt: valid[0].createdAt,
+            id: prev.id,
+            score: prev.summary.overallScore,
+            createdAt: prev.createdAt,
+            categoryScores: prev.summary.categoryScores ?? null,
+            issueCount: prev.summary.issueCount ?? null,
           };
           // Build history oldest→newest then append current as final point
           scoreHistory = valid
