@@ -21,11 +21,12 @@ export function calculateNextRunAt(frequency: ScheduleFrequency, from: Date = ne
       }
       break;
 
-    case 'WEEKLY':
+    case 'WEEKLY': {
       // Schedule for next Monday at 6 AM UTC
       const daysUntilMonday = (8 - next.getUTCDay()) % 7 || 7;
       next.setUTCDate(next.getUTCDate() + daysUntilMonday);
       break;
+    }
 
     case 'MONTHLY':
       // Schedule for 1st of next month at 6 AM UTC

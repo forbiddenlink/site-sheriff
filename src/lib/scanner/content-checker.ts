@@ -321,7 +321,7 @@ function checkKeywordStuffing(url: string, html: string): ContentIssue[] {
     // Hostname: "smashing-magazine.com" → {"smashing", "magazine"}
     // Also extract common brand substrings from compound domains like "tailwindcss" → "tailwind"
     const hostname = parsed.hostname.replace(/^www\./, '');
-    for (const part of hostname.split(/[.\-]/)) {
+    for (const part of hostname.split(/[.-]/)) {
       if (part.length > 2) {
         brandWords.add(part.toLowerCase());
         // For compound TLD-adjacent segments (e.g. "tailwindcss", "nextjs"),
@@ -334,7 +334,7 @@ function checkKeywordStuffing(url: string, html: string): ContentIssue[] {
     // Also add de-pluraled (strip trailing 's') of each segment so that a URL like
     // "/JavaScript/Reference/Functions" also covers the singular "function" — that
     // page's entire purpose is documenting functions, not stuffing the word as spam.
-    for (const segment of parsed.pathname.split(/[\/\-_]/)) {
+    for (const segment of parsed.pathname.split(/[/_-]/)) {
       if (segment.length > 2) {
         const word = segment.toLowerCase();
         brandWords.add(word);

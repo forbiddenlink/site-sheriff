@@ -353,7 +353,6 @@ function checkCitationFriendliness($: cheerio.CheerioAPI, url: string): AIReadin
 function checkBrandEntity($: cheerio.CheerioAPI, url: string): AIReadinessIssue[] {
   const jsonLdScripts = $('script[type="application/ld+json"]');
   let hasOrganization = false;
-  let hasWebsite = false;
   let hasSameAs = false; // Links to social profiles for entity disambiguation
 
   jsonLdScripts.each((_i, el) => {
@@ -370,9 +369,7 @@ function checkBrandEntity($: cheerio.CheerioAPI, url: string): AIReadinessIssue[
             hasSameAs = true;
           }
         }
-        if (itemType === 'WebSite') {
-          hasWebsite = true;
-        }
+        // WebSite schema detected (reserved for future use)
       }
     } catch {
       // Invalid JSON

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterAll, beforeEach } from 'vitest';
 
 // Mock playwright to force fetch fallback
 vi.mock('playwright', () => {

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { checkLinks, findBrokenLinks, findRedirectChains, type LinkCheckResult } from './link-checker';
 import type { LinkData } from '../types';
 

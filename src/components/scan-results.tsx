@@ -1100,6 +1100,7 @@ export function ScanResultsView({
                       <button onClick={() => setShowBadgeEmbed(false)} className="text-slate-400 hover:text-white text-lg">×</button>
                     </div>
                     <div className="mb-3">
+                      {/* eslint-disable-next-line @next/next/no-img-element -- Dynamic API-generated badge */}
                       <img src={`/api/badge/${shareToken}`} alt="Score badge preview" className="mb-2" />
                     </div>
                     <div className="space-y-2">

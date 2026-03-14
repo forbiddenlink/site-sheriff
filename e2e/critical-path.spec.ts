@@ -121,9 +121,8 @@ test.describe('Critical Scan Path', () => {
     // Navigate back to home
     await page.goto('/');
 
-    // Check for recent scans section
-    const recentScans = page.getByText(/recent scans/i);
-    // Recent scans may or may not be visible depending on state
+    // Check for recent scans section (may or may not be visible depending on state)
+    // Just verify the page loads correctly by checking for the scan form
     // This is a soft check - we just verify the page loads correctly
     await expect(page.locator('#scan-url')).toBeVisible();
   });
@@ -146,7 +145,7 @@ test.describe('Critical Scan Path', () => {
 });
 
 test.describe('Shared Report', () => {
-  test('can view shared report without authentication', async ({ page, request }) => {
+  test('can view shared report without authentication', async ({ page: _page, request: _request }) => {
     // This test would require a pre-existing share token
     // Skip if running in isolation
     test.skip();
